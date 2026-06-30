@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>할 일 관리</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="app">
+
+  <!-- 사이드바 -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-icon">✓</div>
+      <span class="logo-text">TodoBoard</span>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="#" class="nav-item active">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="9 11 12 14 22 4"></polyline>
+          <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+        </svg>
+        <span class="nav-label">할 일</span>
+      </a>
+      <a href="#" class="nav-item disabled">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="20" x2="18" y2="10"></line>
+          <line x1="12" y1="20" x2="12" y2="4"></line>
+          <line x1="6"  y1="20" x2="6"  y2="14"></line>
+        </svg>
+        <span class="nav-label">통계</span>
+      </a>
+      <a href="#" class="nav-item disabled">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+        <span class="nav-label">설정</span>
+      </a>
+    </nav>
+  </aside>
+
+  <!-- 메인 -->
+  <div class="main">
+
+    <!-- 상단 바 -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <h1 class="page-title">할 일</h1>
+        <span class="page-date" id="pageDate"></span>
+      </div>
+      <button class="btn btn-primary" id="openModalBtn">+ 새 할 일</button>
+    </header>
+
+    <!-- 콘텐츠 -->
+    <div class="content">
+
+      <!-- 요약 카드 -->
+      <div class="summary-grid">
+        <div class="summary-card">
+          <span class="summary-label">전체 할 일</span>
+          <span class="summary-value" id="summaryTotal">0</span>
+        </div>
+        <div class="summary-card">
+          <span class="summary-label">진행 중</span>
+          <span class="summary-value" id="summaryActive">0</span>
+        </div>
+        <div class="summary-card">
+          <span class="summary-label">완료</span>
+          <span class="summary-value" id="summaryDone">0</span>
+        </div>
+        <div class="summary-card">
+          <span class="summary-label">완료율</span>
+          <span class="summary-value" id="summaryPct">0%</span>
+          <div class="mini-progress-wrap">
+            <div class="mini-progress-fill" id="miniProgressFill"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 툴바 -->
+      <div class="toolbar">
+        <div class="filter-tabs">
+          <button class="filter-tab active" data-filter="all">전체</button>
+          <button class="filter-tab" data-filter="active">진행 중</button>
+          <button class="filter-tab" data-filter="completed">완료</button>
+        </div>
+        <div class="search-wrap">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input type="text" class="search-input" id="searchInput" placeholder="할 일 검색..." />
+        </div>
+      </div>
+
+      <!-- 테이블 -->
+      <div class="table-card">
+        <table class="todo-table">
+          <thead>
+            <tr>
+              <th class="col-check"></th>
+              <th class="col-text">할 일</th>
+              <th class="col-category">카테고리</th>
+              <th class="col-priority">우선순위</th>
+              <th class="col-due">마감일</th>
+              <th class="col-status">상태</th>
+              <th class="col-actions">액션</th>
+            </tr>
+          </thead>
+          <tbody id="todoTableBody"></tbody>
+        </table>
+        <div class="empty-state" id="emptyState">할 일이 없습니다.</div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- 추가/수정 모달 -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 class="modal-title" id="modalTitle">새 할 일 추가</h2>
+      <button class="modal-close" id="modalCloseBtn" aria-label="닫기">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <label class="form-label">할 일 내용 <span class="required">*</span></label>
+        <input type="text" class="form-input" id="modalText" placeholder="할 일을 입력하세요" maxlength="100" />
+      </div>
+      <div class="form-cols">
+        <div class="form-row">
+          <label class="form-label">카테고리</label>
+          <select class="form-select" id="modalCategory">
+            <option value="업무">업무</option>
+            <option value="개인">개인</option>
+            <option value="공부">공부</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label class="form-label">우선순위</label>
+          <select class="form-select" id="modalPriority">
+            <option value="높음">높음</option>
+            <option value="보통" selected>보통</option>
+            <option value="낮음">낮음</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label class="form-label">마감일</label>
+          <input type="date" class="form-input" id="modalDueDate" />
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="modalCancelBtn">취소</button>
+      <button class="btn btn-primary" id="modalSaveBtn">저장</button>
+    </div>
+  </div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
