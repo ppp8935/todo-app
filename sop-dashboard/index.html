@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>리덴스 S&amp;OP 대시보드</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232a78d6'/%3E%3Cpath d='M9 22V14M16 22V9M23 22v-5' stroke='white' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">S</span>
+      <div>
+        <h1>리덴스 S&amp;OP 대시보드</h1>
+        <p class="brand-sub" id="headerSub">엑셀 파일을 불러오면 대시보드가 생성됩니다</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <span class="save-state" id="saveState" aria-live="polite"></span>
+      <button class="btn" id="btnImport" type="button">엑셀 불러오기</button>
+      <button class="btn" id="btnExport" type="button">엑셀 내보내기</button>
+      <button class="btn btn-ghost" id="btnSettings" type="button" aria-label="설정">설정</button>
+    </div>
+  </header>
+
+  <nav class="tabs" id="tabs" aria-label="화면 전환"></nav>
+
+  <main id="view" class="view"></main>
+
+  <!-- 상세 패널 -->
+  <aside class="drawer" id="drawer" aria-hidden="true">
+    <div class="drawer-backdrop" data-close></div>
+    <div class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawerTitle">
+      <div class="drawer-head">
+        <div>
+          <p class="drawer-code" id="drawerCode"></p>
+          <h2 id="drawerTitle"></h2>
+        </div>
+        <button class="btn btn-ghost" type="button" data-close aria-label="닫기">닫기</button>
+      </div>
+      <div class="drawer-body" id="drawerBody"></div>
+    </div>
+  </aside>
+
+  <!-- 엑셀 불러오기 -->
+  <dialog id="importDialog" class="modal">
+    <form method="dialog" class="modal-inner">
+      <h2>엑셀 불러오기</h2>
+      <p class="muted">S&amp;OP 원본 엑셀(.xlsx)을 선택하세요. 시트 이름이 같은 시트만 반영됩니다.</p>
+      <label class="dropzone" id="dropzone">
+        <input type="file" id="fileInput" accept=".xlsx,.xlsm,.xls" hidden />
+        <span class="dz-title">파일을 끌어다 놓거나 클릭해서 선택</span>
+        <span class="dz-file muted" id="dzFile"></span>
+      </label>
+      <div id="importSheets" class="import-sheets"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" value="cancel" type="submit">취소</button>
+        <button class="btn btn-primary" id="importConfirm" type="button" disabled>반영하기</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 붙여넣기로 갱신 -->
+  <dialog id="pasteDialog" class="modal">
+    <form method="dialog" class="modal-inner">
+      <h2 id="pasteTitle">붙여넣기로 갱신</h2>
+      <p class="muted">엑셀/ERP에서 범위를 복사해 아래에 붙여넣으세요. 열 순서는 현재 시트와 같아야 합니다. 첫 줄이 헤더면 자동으로 건너뜁니다.</p>
+      <textarea id="pasteArea" rows="10" spellcheck="false" placeholder="여기에 Ctrl+V"></textarea>
+      <fieldset class="seg-field">
+        <legend class="sr-only">반영 방식</legend>
+        <label><input type="radio" name="pasteMode" value="replace" checked /> 전체 교체</label>
+        <label><input type="radio" name="pasteMode" value="append" /> 아래에 추가</label>
+      </fieldset>
+      <p class="muted" id="pastePreview"></p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" value="cancel" type="submit">취소</button>
+        <button class="btn btn-primary" id="pasteConfirm" type="button">반영하기</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 설정 -->
+  <dialog id="settingsDialog" class="modal">
+    <form method="dialog" class="modal-inner" id="settingsForm">
+      <h2>설정</h2>
+      <div class="form-grid">
+        <label>계획 연도<input type="number" name="year" min="2000" max="2100" /></label>
+        <label>검토 시작월<input type="number" name="startMonth" min="1" max="12" /></label>
+        <label>검토 개월 수<input type="number" name="months" min="1" max="12" /></label>
+        <label>최소 발주량(MOQ)<input type="number" name="moq" min="0" step="1000" /></label>
+        <label>권장발주량 올림 단위<input type="number" name="roundUnit" min="1" step="1000" /></label>
+        <label>안전재고 판매평균 개월 수<input type="number" name="salesAvgMonths" min="1" max="12" /></label>
+        <label class="span-2">기준일 (비우면 오늘)<input type="date" name="baseDate" /></label>
+      </div>
+      <h3>데이터 백업</h3>
+      <p class="muted">데이터는 이 브라우저에만 저장됩니다. 다른 PC로 옮기거나 백업하려면 파일로 저장하세요.</p>
+      <div class="row-actions">
+        <button class="btn" type="button" id="btnBackup">백업 파일 저장(.json)</button>
+        <label class="btn">백업 파일 복원<input type="file" id="restoreInput" accept=".json" hidden /></label>
+        <button class="btn btn-danger" type="button" id="btnReset">모든 데이터 삭제</button>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" value="cancel" type="submit">닫기</button>
+        <button class="btn btn-primary" id="settingsSave" type="button">저장</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="tooltip" id="tooltip" role="tooltip" hidden></div>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="vendor/xlsx.full.min.js"></script>
+  <script src="js/engine.js"></script>
+  <script src="js/importer.js"></script>
+  <script src="js/grid.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
