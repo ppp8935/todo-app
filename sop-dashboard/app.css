@@ -125,7 +125,9 @@ input, select, textarea, button { font: inherit; color: inherit; }
 /* ── 상단 ───────────────────────────────────────────── */
 .topbar {
   display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
-  padding: 14px 24px; background: var(--surface); border-bottom: 1px solid var(--line);
+  padding-block: 14px;
+  padding-left: max(24px, env(safe-area-inset-left, 0px)); padding-right: max(24px, env(safe-area-inset-right, 0px));
+  background: var(--surface); border-bottom: 1px solid var(--line);
 }
 .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .brand h1 { font-size: 18px; }
@@ -139,9 +141,10 @@ input, select, textarea, button { font: inherit; color: inherit; }
 .save-state.error { color: var(--critical-ink); }
 
 .tabs {
-  display: flex; gap: 2px; padding: 0 20px; overflow-x: auto;
+  display: flex; gap: 2px; overflow-x: auto;
+  padding-left: max(20px, env(safe-area-inset-left, 0px)); padding-right: max(20px, env(safe-area-inset-right, 0px));
   background: var(--surface); border-bottom: 1px solid var(--line);
-  position: sticky; top: 0; z-index: 20; scrollbar-width: thin;
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; scrollbar-width: thin;
 }
 .tab {
   border: 0; background: none; padding: 11px 12px; cursor: pointer; white-space: nowrap;
@@ -151,7 +154,15 @@ input, select, textarea, button { font: inherit; color: inherit; }
 .tab.active { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
 .tab-sep { width: 1px; background: var(--line); margin: 10px 8px; flex: none; }
 
-.view { padding: 20px 24px 60px; max-width: 1800px; margin: 0 auto; }
+.view {
+  padding-block: 20px 60px;
+  padding-left: max(24px, env(safe-area-inset-left, 0px)); padding-right: max(24px, env(safe-area-inset-right, 0px));
+  max-width: 1800px; margin: 0 auto;
+}
+.loading { text-align: center; padding: 60px 0; }
+.modal-sm { width: min(440px, calc(100% - 32px)); }
+.master td.edit input:disabled { color: inherit; opacity: 1; }
+.master td.edit input:disabled:hover { border-color: transparent; }
 
 /* ── 빈 화면 ────────────────────────────────────────── */
 .empty {
@@ -396,7 +407,7 @@ textarea {
 .row-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
 .toast {
-  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 90;
+  position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 90;
   background: var(--ink); color: var(--surface); padding: 10px 16px; border-radius: 8px; font-size: 13px; box-shadow: var(--shadow);
 }
 
@@ -405,12 +416,12 @@ textarea {
   .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 720px) {
-  .topbar { padding: 12px 16px; }
+  .topbar { padding-block: 12px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
   .top-actions { width: 100%; }
   .top-actions .btn { flex: 1; justify-content: center; }
   .save-state { order: 9; width: 100%; }
-  .tabs { padding: 0 8px; }
-  .view { padding: 14px 16px 50px; }
+  .tabs { padding-left: max(8px, env(safe-area-inset-left, 0px)); padding-right: max(8px, env(safe-area-inset-right, 0px)); }
+  .view { padding-block: 14px 50px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .kpi-value { font-size: 22px; }
   .action-list { grid-template-columns: 1fr; }

@@ -3,10 +3,11 @@
   'use strict';
 
   var E = window.SOPEngine, I = window.SOPImporter, Grid = window.SOPGrid, esc = Grid.esc;
-  var STORE_KEY = 'sop-dashboard-v1';
   var PREF_KEY = 'sop-dashboard-prefs';
 
-  var state = load();
+  var Store = window.SOPStore;
+  var state = E.emptyState();
+  var ready = false;
   var prefs = loadPrefs();
   var results = [];
   var currentGrid = null;
@@ -23,19 +24,6 @@
   ];
 
   // ── 저장 ─────────────────────────────────────────────
-  function load() {
-    try {
-      var s = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
-      if (s && s.sheets && s.items) {
-        var base = E.emptyState();
-        s.settings = Object.assign({}, base.settings, s.settings);
-        E.SHEETS.forEach(function (d) { if (!s.sheets[d.key]) s.sheets[d.key] = base.sheets[d.key]; });
-        return s;
-      }
-    } catch (e) { /* 저장소 사용 불가 */ }
-    return E.emptyState();
-  }
-
   function loadPrefs() {
     try { return Object.assign({ tab: 'dashboard', hideDiscontinued: false, status: 'all' }, JSON.parse(localStorage.getItem(PREF_KEY) || '{}')); }
     catch (e) { return { tab: 'dashboard', hideDiscontinued: false, status: 'all' }; }
@@ -45,27 +33,37 @@
     try { localStorage.setItem(PREF_KEY, JSON.stringify(prefs)); } catch (e) { /* 무시 */ }
   }
 
-  var saveTimer = null;
   function persist() {
+    if (Store.readOnly) return;
     state.updatedAt = new Date().toISOString();
     setSaveState('저장 중…');
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(flush, 250);
+    Store.save(state);
   }
-
-  function flush() {
-    if (!saveTimer) return;
-    clearTimeout(saveTimer);
-    saveTimer = null;
-    try {
-      localStorage.setItem(STORE_KEY, JSON.stringify(state));
-      setSaveState('저장됨 ' + timeLabel(new Date()));
-    } catch (e) {
-      setSaveState('브라우저 저장 실패 — 설정에서 백업 파일로 저장하세요', true);
-    }
+  Store.on('saved', function () {
+    setSaveState((Store.mode === 'shared' ? '공유 저장됨 ' : '이 브라우저에 저장됨 ') + timeLabel(new Date()));
+  });
+  Store.on('error', function (err) {
+    if (Store.mode === 'local') setSaveState('브라우저 저장 실패 — 설정에서 백업 파일로 저장하세요', true);
+    else if (err && err.code === 'quota_exceeded') setSaveState('공유 저장 공간이 가득 찼습니다', true);
+    else if (Store.readOnly) { setSaveState('보기 전용 — 수정 권한이 없습니다', true); render(); }
+    else setSaveState('공유 저장 실패 — 잠시 후 다시 시도하세요', true);
+  });
+  // 다른 사람이 공유 데이터를 바꾸면 반영 (셀 편집 중이면 끝난 뒤)
+  var remoteWaiting = null;
+  Store.on('remote', function (next) {
+    if (currentGrid && currentGrid.editing) { remoteWaiting = next; return; }
+    applyRemote(next);
+  });
+  function applyRemote(next) {
+    remoteWaiting = null;
+    state = next;
+    var y = window.scrollY;
+    render();
+    window.scrollTo(0, y);
+    setSaveState('다른 사용자의 변경을 반영했습니다 ' + timeLabel(new Date()));
   }
-  window.addEventListener('pagehide', flush);
-  document.addEventListener('visibilitychange', function () { if (document.hidden) flush(); });
+  window.addEventListener('pagehide', function () { Store.flush(); });
+  document.addEventListener('visibilitychange', function () { if (document.hidden) Store.flush(); });
 
   function setSaveState(text, error) {
     var el = document.getElementById('saveState');
@@ -139,11 +137,14 @@
   });
 
   function render() {
+    if (remoteWaiting && !(currentGrid && currentGrid.editing)) { var nx = remoteWaiting; remoteWaiting = null; state = nx; }
+    document.body.classList.toggle('readonly', Store.readOnly);
     renderTabs();
     recompute();
     updateHeader();
     var view = document.getElementById('view');
     currentGrid = null;
+    if (!ready) { view.innerHTML = '<p class="loading muted">데이터를 불러오는 중…</p>'; return; }
     if (!hasData() && prefs.tab === 'dashboard') { view.innerHTML = emptyHtml(); return; }
     if (prefs.tab === 'dashboard') renderDashboard(view);
     else if (prefs.tab === 'items') renderItems(view);
@@ -154,8 +155,11 @@
     return '<section class="empty">' +
       '<h2>S&amp;OP 엑셀 파일을 불러오세요</h2>' +
       '<p class="muted">원본 엑셀(S&amp;OP 관리 파일)을 한 번 불러오면 Master_리덴스 품목과 S&amp;OP · 재고 · 판매 · 미입고 · 반제품코드 시트가 웹으로 옮겨집니다.<br>이후에는 각 탭에서 직접 수정하거나, 시트별로 엑셀에서 다시 불러오거나 붙여넣어 갱신할 수 있습니다.</p>' +
-      '<button class="btn btn-primary" type="button" data-open-import>엑셀 불러오기</button>' +
-      '<p class="muted small">데이터는 서버로 전송되지 않고 이 브라우저에만 저장됩니다.</p>' +
+      (Store.readOnly ? '<p class="note-box">아직 데이터가 없습니다. 대시보드 담당자가 데이터를 올리면 여기에 표시됩니다.</p>'
+        : '<button class="btn btn-primary" type="button" data-open-import>엑셀 불러오기</button>') +
+      '<p class="muted small">' + (Store.mode === 'shared'
+        ? '불러온 데이터는 이 대시보드를 공유받은 사람들과 함께 보는 공유 저장소에 저장됩니다.'
+        : '데이터는 서버로 전송되지 않고 이 브라우저에만 저장됩니다.') + '</p>' +
       '</section>';
   }
 
@@ -260,7 +264,7 @@
         numCell(r.stock, r.stockOverridden ? '수기 입력값 (조회값 ' + n0(r.stockLookup) + ')' : '') +
         numCell(r.transit, r.transitOverridden ? '수기 입력값 (조회값 ' + n0(r.transitLookup) + ')' : '') +
         numCell(r.available) + numCell(r.demandTotal) +
-        '<td class="num edit"><input type="number" min="0" data-field="lt" value="' + esc(it.lt) + '" aria-label="LT" /></td>' +
+        '<td class="num edit"><input type="number" min="0" data-field="lt" value="' + esc(it.lt) + '" aria-label="LT"' + dis() + ' /></td>' +
         r.inbound.map(function (v) { return numCell(v, '', v ? 'in' : 'zero'); }).join('') +
         r.demand.map(function (v) { return numCell(v, '', v ? '' : 'zero'); }).join('') +
         r.balance.map(function (v) { return '<td class="num bal ' + (v <= 0 ? 'bal-neg' : '') + '">' + signed(v) + '</td>'; }).join('') +
@@ -270,14 +274,16 @@
         '<td class="ctr">' + (r.deadline ? '<span class="chip ' + (r.deadline === '즉시 발주' ? 'st-critical' : 'st-neutral') + '">' +
           (r.deadline === '즉시 발주' ? '<span aria-hidden="true">!</span>' : '') + esc(r.deadline) + '</span>' : '') + '</td>' +
         numCell(r.recommended) +
-        '<td class="num edit"><input type="text" inputmode="numeric" data-field="adjust" value="' + esc(it.adjust) + '" aria-label="발주 조정" /></td>' +
-        '<td class="edit note"><input type="text" data-field="note" value="' + esc(it.note) + '" aria-label="비고" /></td>' +
+        '<td class="num edit"><input type="text" inputmode="numeric" data-field="adjust" value="' + esc(it.adjust) + '" aria-label="발주 조정"' + dis() + ' /></td>' +
+        '<td class="edit note"><input type="text" data-field="note" value="' + esc(it.note) + '" aria-label="비고"' + dis() + ' /></td>' +
         '</tr>';
     });
     if (!rows.length) h += '<tr><td colspan="' + (12 + mN * 3 + 2) + '" class="muted pad">조건에 맞는 품목이 없습니다.</td></tr>';
     h += '</tbody></table>';
     return h;
   }
+
+  function dis() { return Store.readOnly ? ' disabled' : ''; }
 
   function numCell(v, title, cls) {
     var neg = typeof v === 'number' && v < 0;
@@ -524,15 +530,17 @@
       sheetKey: 'items'
     });
     currentGrid = new Grid(document.getElementById('gridHost'), {
-      columns: ITEM_COLS,
+      columns: roCols(ITEM_COLS),
       rows: function () { return state.items; },
       stickyCols: 1,
       filter: searchFilter(function (it) { return [it.erp, it.semi, it.name, it.note].join(' '); }),
       newRow: newItem,
       onChange: function () { persist(); },
-      onDelete: function (ri) {
-        if (!confirm('"' + (state.items[ri].name || state.items[ri].erp) + '" 품목을 삭제할까요?')) return;
-        state.items.splice(ri, 1); persist(); currentGrid.render(); updateCount(state.items.length);
+      onDelete: Store.readOnly ? null : function (ri) {
+        askConfirm('"' + (state.items[ri].name || state.items[ri].erp) + '" 품목을 삭제할까요?', '삭제').then(function (ok) {
+          if (!ok) return;
+          state.items.splice(ri, 1); persist(); currentGrid.render(); updateCount(state.items.length);
+        });
       }
     });
     currentGrid.render();
@@ -585,7 +593,7 @@
     }
     var cols = sheetColumns(key);
     currentGrid = new Grid(document.getElementById('gridHost'), {
-      columns: cols,
+      columns: roCols(cols),
       groups: sheet.groups,
       rows: function () { return state.sheets[key].rows; },
       stickyCols: key === 'sop' || key === 'stock' || key === 'sales' ? Math.min(3, cols.length) : 1,
@@ -594,16 +602,21 @@
         markEdited(key);
         persist();
         recompute(); // 계산 열(S&OP 합계, 재고 가용재고) 갱신
+        if (remoteWaiting) { applyRemote(remoteWaiting); return; }
         if (ri >= 0) currentGrid.refreshRow(ri);
         else currentGrid.render();
         updateCount(state.sheets[key].rows.length);
       },
-      onDelete: function (ri) {
+      onDelete: Store.readOnly ? null : function (ri) {
         state.sheets[key].rows.splice(ri, 1);
         markEdited(key); persist(); recompute(); currentGrid.render(); updateCount(state.sheets[key].rows.length);
       }
     });
     currentGrid.render();
+  }
+
+  function roCols(cols) {
+    return Store.readOnly ? cols.map(function (c) { return Object.assign({}, c, { readOnly: true }); }) : cols;
   }
 
   function searchFilter(text) {
@@ -626,8 +639,9 @@
       '<div class="sheet-meta muted"><span id="rowCount">' + o.count.toLocaleString('ko-KR') + '행</span>' +
       (o.editedAt ? '<span>마지막 수정 ' + dateLabel(o.editedAt) + '</span>' : '') + '</div></div>' +
       '<div class="toolbar"><input type="search" data-sheet-search placeholder="검색" value="' + esc(prefs['q_' + prefs.tab] || '') + '" />' +
-      o.actions.map(function (a) { return acts[a]; }).join('') + metaField + '</div>' +
-      '<p class="muted small hint">셀을 클릭해 수정 · Enter 아래로 · Tab 오른쪽으로 · 엑셀에서 복사한 범위를 셀에 붙여넣으면 그 위치부터 채워집니다.</p>' +
+      (Store.readOnly ? '' : o.actions.map(function (a) { return acts[a]; }).join('') + metaField) + '</div>' +
+      (Store.readOnly ? '<p class="muted small hint">보기 전용입니다.</p>'
+        : '<p class="muted small hint">셀을 클릭해 수정 · Enter 아래로 · Tab 오른쪽으로 · 엑셀에서 복사한 범위를 셀에 붙여넣으면 그 위치부터 채워집니다.</p>') +
       '<div class="table-wrap grid-wrap" id="gridHost"></div></section>';
   }
 
@@ -808,6 +822,18 @@
   });
 
   function download(blob, filename) {
+    var use = window.claude && typeof window.claude.use === 'function' ? window.claude.use.bind(window.claude) : null;
+    if (use) {
+      // 아티팩트 안에서는 일반 다운로드가 막혀 있어 downloads 기능으로 저장
+      use('downloads').then(function (dl) {
+        if (!dl) { toast('이 화면에서는 파일 저장을 지원하지 않습니다'); return; }
+        return dl.save({ filename: filename, data: blob }).then(function () { toast('저장했습니다'); });
+      }).catch(function (err) {
+        if (err && err.code === 'declined') return;
+        toast('파일을 저장하지 못했습니다' + (err && err.message ? ': ' + err.message : ''));
+      });
+      return;
+    }
     var a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = filename;
@@ -846,10 +872,7 @@
     f.text().then(function (t) {
       var s = JSON.parse(t);
       if (!s || !s.sheets || !s.items) throw new Error('형식 오류');
-      state = s;
-      var base = E.emptyState();
-      state.settings = Object.assign({}, base.settings, state.settings);
-      E.SHEETS.forEach(function (d) { if (!state.sheets[d.key]) state.sheets[d.key] = base.sheets[d.key]; });
+      state = Store.normalize(s);
       persist();
       document.getElementById('settingsDialog').close();
       toast('백업을 복원했습니다');
@@ -857,15 +880,52 @@
     }).catch(function () { toast('백업 파일을 읽을 수 없습니다'); });
   });
   document.getElementById('btnReset').addEventListener('click', function () {
-    if (!confirm('이 브라우저에 저장된 모든 대시보드 데이터를 삭제할까요? (되돌릴 수 없습니다)')) return;
-    state = E.emptyState();
-    try { localStorage.removeItem(STORE_KEY); } catch (e) { /* 무시 */ }
+    var msg = Store.mode === 'shared'
+      ? '공유 대시보드의 모든 데이터를 삭제할까요? 공유받은 모든 사람에게서 사라지며 되돌릴 수 없습니다.'
+      : '이 브라우저에 저장된 모든 대시보드 데이터를 삭제할까요? 되돌릴 수 없습니다.';
     document.getElementById('settingsDialog').close();
-    setSaveState('');
+    askConfirm(msg, '모두 삭제').then(function (ok) {
+      if (!ok) return;
+      state = E.emptyState();
+      if (Store.mode === 'local') Store.clearLocal();
+      persist();
+      render();
+    });
+  });
+
+  // 확인 창 (아티팩트 안에서는 confirm()이 동작하지 않음)
+  function askConfirm(message, okLabel) {
+    var dlg = document.getElementById('confirmDialog');
+    document.getElementById('confirmMsg').textContent = message;
+    document.getElementById('confirmOk').textContent = okLabel || '확인';
+    dlg.showModal();
+    return new Promise(function (resolve) {
+      dlg.addEventListener('close', function onClose() {
+        dlg.removeEventListener('close', onClose);
+        resolve(dlg.returnValue === 'ok');
+      });
+    });
+  }
+
+  // 시작
+  render();
+  Store.init().then(function (res) {
+    state = res.state;
+    ready = true;
+    if (res.mode === 'shared') {
+      setSaveState(res.readOnly ? '보기 전용' : '공유 대시보드' + (state.updatedAt ? ' · 마지막 저장 ' + dateLabel(state.updatedAt) : ''));
+    } else if (state.updatedAt) {
+      setSaveState('이 브라우저에 저장됨 ' + dateLabel(state.updatedAt));
+    }
+    applyModeText();
     render();
   });
 
-  // 시작
-  if (state.updatedAt) setSaveState('저장됨 ' + dateLabel(state.updatedAt));
-  render();
+  function applyModeText() {
+    var shared = Store.mode === 'shared';
+    document.getElementById('backupDesc').textContent = shared
+      ? '데이터는 공유 저장소에 저장되어 이 대시보드를 공유받은 사람 모두가 같은 내용을 봅니다. 따로 보관하려면 백업 파일로 저장하세요.'
+      : '데이터는 이 브라우저에만 저장됩니다. 다른 PC로 옮기거나 백업하려면 파일로 저장하세요.';
+    ['btnImport', 'btnSettings'].forEach(function (id) { document.getElementById(id).hidden = Store.readOnly; });
+  }
 })();
