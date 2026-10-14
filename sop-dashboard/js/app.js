@@ -146,7 +146,7 @@
     currentGrid = null;
     if (!ready) { view.innerHTML = '<p class="loading muted">데이터를 불러오는 중…</p>'; return; }
     if (!hasData() && prefs.tab === 'dashboard') { view.innerHTML = emptyHtml(); return; }
-    if (prefs.tab === 'dashboard') renderDashboard(view);
+    if (prefs.tab === 'dashboard') { renderDashboard(view); decorateMaster(E.windowMonths(state.settings)); }
     else if (prefs.tab === 'items') renderItems(view);
     else renderSheet(view, prefs.tab);
   }
@@ -154,7 +154,7 @@
   function emptyHtml() {
     return '<section class="empty">' +
       '<h2>S&amp;OP 엑셀 파일을 불러오세요</h2>' +
-      '<p class="muted">원본 엑셀(S&amp;OP 관리 파일)을 한 번 불러오면 Master_리덴스 품목과 S&amp;OP · 재고 · 판매 · 미입고 · 반제품코드 시트가 웹으로 옮겨집니다.<br>이후에는 각 탭에서 직접 수정하거나, 시트별로 엑셀에서 다시 불러오거나 붙여넣어 갱신할 수 있습니다.</p>' +
+      '<p class="muted">원본 엑셀(S&amp;OP 관리 파일)을 한 번 불러오면 리덴스_S&amp;OP 품목(Master_리덴스 시트)과 S&amp;OP · 재고 · 판매 · 미입고 · 반제품코드 시트가 웹으로 옮겨집니다.<br>이후에는 각 탭에서 직접 수정하거나, 시트별로 엑셀에서 다시 불러오거나 붙여넣어 갱신할 수 있습니다.</p>' +
       (Store.readOnly ? '<p class="note-box">아직 데이터가 없습니다. 대시보드 담당자가 데이터를 올리면 여기에 표시됩니다.</p>'
         : '<button class="btn btn-primary" type="button" data-open-import>엑셀 불러오기</button>') +
       '<p class="muted small">' + (Store.mode === 'shared'
@@ -190,7 +190,7 @@
     var months = E.windowMonths(state.settings);
     var discCount = results.filter(function (r) { return isDiscontinued(r.item); }).length;
 
-    var h = '<section class="kpis">' +
+    var summary = '<section class="kpis">' +
       kpi('즉시 발주', count('urgent'), '품목', 'st-critical', '발주 기한이 이미 지났거나 오늘인 품목') +
       kpi('발주 검토', count('review'), '품목', 'st-warning', 'LT 안에 품절 예상 · 발주 기한은 남음') +
       kpi('품절 예상', stockout, '품목', '', months[0] + '~' + months[months.length - 1] + '월 중 월말잔여 ≤ 0') +
@@ -201,9 +201,9 @@
     // 조치 필요 목록
     var action = scope.filter(function (r) { return r.status === 'urgent' || r.status === 'review'; })
       .sort(function (a, b) { return a.stockoutIndex - b.stockoutIndex || a.balance[a.stockoutIndex] - b.balance[b.stockoutIndex]; });
-    h += '<section class="panel"><div class="panel-head"><h2>조치 필요 품목</h2><span class="muted">' + action.length + '개 · 품절 예상월 빠른 순</span></div>';
+    summary += '<section class="panel"><div class="panel-head"><h2>조치 필요 품목</h2><span class="muted">' + action.length + '개 · 품절 예상월 빠른 순</span></div>';
     if (action.length) {
-      h += '<ul class="action-list">' + action.map(function (r) {
+      summary += '<ul class="action-list">' + action.map(function (r) {
         var st = STATUS[r.status];
         return '<li><button type="button" class="action-item" data-detail="' + r.index + '">' +
           '<span class="chip ' + st.cls + '"><span aria-hidden="true">' + st.icon + '</span>' + esc(r.deadline || st.label) + '</span>' +
@@ -214,13 +214,14 @@
           '</button></li>';
       }).join('') + '</ul>';
     } else {
-      h += '<p class="muted pad">현재 조치가 필요한 품목이 없습니다.</p>';
+      summary += '<p class="muted pad">현재 조치가 필요한 품목이 없습니다.</p>';
     }
-    h += '</section>';
+    summary += '</section>';
 
     // 필터 + Master 표
     var statuses = [['all', '전체'], ['urgent', '즉시 발주'], ['review', '발주 검토'], ['watch', '품절 예상(여유)'], ['ok', '정상']];
-    h += '<section class="panel"><div class="panel-head"><h2>Master_리덴스</h2>' +
+    // 표를 먼저, 요약(KPI·조치 필요 품목)은 아래에
+    var h = '<section class="panel"><div class="panel-head"><h2>리덴스_S&amp;OP</h2>' +
       '<span class="muted">LT · 발주 조정 · 비고는 표에서 바로 수정할 수 있습니다</span></div>' +
       '<div class="filters">' +
       '<input type="search" id="dashSearch" placeholder="코드·상품명·비고 검색" value="' + esc(prefs.query || '') + '" />' +
@@ -229,7 +230,7 @@
       }).join('') + '</div>' +
       '<label class="check"><input type="checkbox" id="hideDisc"' + (prefs.hideDiscontinued ? ' checked' : '') + ' /> 단종 품목 숨기기 (' + discCount + ')</label>' +
       '</div>' +
-      '<div class="table-wrap" id="masterWrap">' + masterTable(months) + '</div></section>';
+      '<div class="table-wrap" id="masterWrap">' + masterTable(months) + '</div></section>' + summary;
 
     view.innerHTML = h;
   }
@@ -283,6 +284,29 @@
     return h;
   }
 
+  // 열 그룹(재고 현황 · 입고예정 · S&OP · 월말 잔여 · 안전재고 · 검토 · 비고) 경계에 구분선
+  function decorateMaster(months) {
+    var wrap = document.getElementById('masterWrap');
+    if (!wrap) return;
+    var mN = months.length;
+    var starts = [2, 7, 7 + mN, 7 + 2 * mN, 7 + 3 * mN, 8 + 3 * mN, 13 + 3 * mN];
+    var bands = {}; // 그룹별 번갈아 배경
+    starts.forEach(function (st, k) {
+      var end = k + 1 < starts.length ? starts[k + 1] : st + 1;
+      for (var c = st; c < end; c++) bands[c] = k % 2 ? 'band-b' : 'band-a';
+    });
+    wrap.querySelectorAll('thead tr.grp th').forEach(function (th, i) {
+      if (i > 0) th.classList.add('gs', i % 2 ? 'band-a' : 'band-b');
+    });
+    wrap.querySelectorAll('thead tr:not(.grp), tbody tr').forEach(function (tr) {
+      Array.prototype.forEach.call(tr.children, function (cell, c) {
+        if (tr.children.length < 3) return;
+        if (starts.indexOf(c) >= 0) cell.classList.add('gs');
+        if (bands[c]) cell.classList.add(bands[c]);
+      });
+    });
+  }
+
   function dis() { return Store.readOnly ? ' disabled' : ''; }
 
   function numCell(v, title, cls) {
@@ -298,6 +322,7 @@
       prefs.query = e.target.value;
       savePrefs();
       document.getElementById('masterWrap').innerHTML = masterTable(E.windowMonths(state.settings));
+      decorateMaster(E.windowMonths(state.settings));
     }
   });
   view.addEventListener('change', function (e) {
@@ -522,7 +547,7 @@
 
   function renderItems(view) {
     view.innerHTML = sheetShell({
-      title: '품목 설정 (Master_리덴스 품목 목록)',
+      title: '품목 설정 (리덴스_S&OP 품목 목록)',
       desc: '대시보드에 표시할 품목과 LT를 관리합니다. <b>현재고/미입고 수기값</b>을 입력하면 시트 조회값 대신 그 값을 씁니다(비우면 자동 계산). ' +
         '<b>S&amp;OP 매칭</b>은 S&amp;OP 시트에서 ERP 코드 조정 열로 찾을지, 상품명으로 찾을지 정합니다.',
       count: state.items.length,
@@ -762,7 +787,7 @@
     document.getElementById('importDialog').showModal();
   }
 
-  function sheetLabel(d) { return d.key === 'items' ? '품목 목록 (Master_리덴스)' : d.name; }
+  function sheetLabel(d) { return d.key === 'items' ? '품목 목록 (' + d.name + ')' : d.name; }
 
   function handleFile(file) {
     if (!file) return;
@@ -778,7 +803,7 @@
       var found = I.detect(pendingWb);
       document.getElementById('dzFile').textContent = file.name;
       if (!found.length) {
-        document.getElementById('importSheets').innerHTML = '<p class="note-box warn">인식할 수 있는 시트가 없습니다. 시트 이름이 S&amp;OP, 재고 현황, 판매 실적 현황, 미입고 현황, 재고 현황_RAW, 반제품코드, Master_리덴스 중 하나여야 합니다.</p>';
+        document.getElementById('importSheets').innerHTML = '<p class="note-box warn">인식할 수 있는 시트가 없습니다. 시트 이름이 S&amp;OP, 재고 현황, 판매 실적 현황, 미입고 현황, 재고 현황_RAW, 반제품코드, Master_리덴스(또는 리덴스_S&amp;OP) 중 하나여야 합니다.</p>';
         return;
       }
       var hasItems = state.items.length > 0;

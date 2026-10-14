@@ -28,6 +28,7 @@
   --good-bg: #e6f4e4;
   --neg-bg: #fbe9e8;
   --in-bg: #eaf2fc;
+  --band: #f4f4f1;
   --shadow: 0 1px 2px rgba(11, 11, 11, .06), 0 4px 16px rgba(11, 11, 11, .05);
   --radius: 10px;
 }
@@ -56,6 +57,7 @@
     --good-bg: #16301a;
     --neg-bg: #3a1d1c;
     --in-bg: #162537;
+    --band: #20201f;
     --shadow: 0 1px 2px rgba(0, 0, 0, .4);
   }
 }
@@ -83,6 +85,7 @@
   --good-bg: #16301a;
   --neg-bg: #3a1d1c;
   --in-bg: #162537;
+  --band: #20201f;
   --shadow: 0 1px 2px rgba(0, 0, 0, .4);
 }
 
@@ -253,7 +256,14 @@ th, td { white-space: nowrap; }
 .master thead tr:nth-child(2) th { top: 27px; }
 .master th.num { text-align: right; }
 .master th .sub, .master td .sub { display: block; font-size: 11px; color: var(--muted); font-weight: 400; }
-.master td { padding: 6px 8px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.master th { padding: 7px 12px; }
+.master td { padding: 7px 12px; border-bottom: 1px solid var(--line); border-left: 1px solid transparent; background: var(--surface); }
+/* 열 구분: 셀마다 옅은 세로선, 그룹 경계는 진한 선, 그룹마다 번갈아 배경 */
+.master th + th, .master td + td { box-shadow: inset 1px 0 0 var(--line); }
+.master .gs { box-shadow: inset 2px 0 0 var(--line-strong) !important; }
+.master td.band-b { background: var(--band); }
+.master thead th.band-b { background: var(--surface-2); }
+.master thead th.band-a { background: var(--surface); }
 .master tbody tr:hover td { background: var(--surface-2); }
 .master tr.disc td { color: var(--muted); }
 .master td.zero { color: var(--muted); }
@@ -263,7 +273,7 @@ th, td { white-space: nowrap; }
 .master td.overridden { text-decoration: underline dotted var(--muted); text-underline-offset: 3px; cursor: help; }
 .master .sticky-l, .master .sticky-l2 { position: sticky; z-index: 1; }
 .master .sticky-l { left: 0; min-width: 84px; }
-.master .sticky-l2 { left: 84px; box-shadow: 1px 0 0 var(--line); }
+.master .sticky-l2 { left: 84px; box-shadow: inset -1px 0 0 var(--line-strong) !important; }
 .master th.sticky-l, .master th.sticky-l2 { z-index: 3; }
 .master td.name { max-width: 300px; min-width: 220px; overflow: hidden; text-overflow: ellipsis; text-align: left; }
 .master td.code { font-variant-numeric: tabular-nums; }

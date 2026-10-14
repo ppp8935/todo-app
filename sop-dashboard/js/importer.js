@@ -5,7 +5,14 @@
   'use strict';
 
   var E = root.SOPEngine || (typeof require !== 'undefined' ? require('./engine.js') : null);
-  var MASTER_SHEET = 'Master_리덴스';
+  var MASTER_SHEET = 'Master_리덴스';      // 원본 엑셀의 시트명
+  var EXPORT_SHEET = '리덴스_S&OP';         // 내보내기 시트명 (다시 불러올 때도 인식)
+
+  function masterName(wb) {
+    if (wb.SheetNames.indexOf(MASTER_SHEET) >= 0) return MASTER_SHEET;
+    if (wb.SheetNames.indexOf(EXPORT_SHEET) >= 0) return EXPORT_SHEET;
+    return null;
+  }
 
   function getXLSX() {
     return root.XLSX || (typeof require !== 'undefined' ? require('xlsx') : null);
@@ -94,7 +101,8 @@
   // 워크북에서 인식 가능한 시트 목록
   function detect(wb) {
     var found = [];
-    if (wb.SheetNames.indexOf(MASTER_SHEET) >= 0) found.push({ key: 'items', name: MASTER_SHEET });
+    var mn = masterName(wb);
+    if (mn) found.push({ key: 'items', name: mn });
     E.SHEETS.forEach(function (d) {
       if (wb.SheetNames.indexOf(d.name) >= 0) found.push({ key: d.key, name: d.name });
     });
@@ -106,7 +114,7 @@
       if (key === 'items') {
         var prev = {};
         state.items.forEach(function (it) { prev[it.erp] = it; });
-        state.items = parseMaster(wb.Sheets[MASTER_SHEET]).map(function (it) {
+        state.items = parseMaster(wb.Sheets[masterName(wb)]).map(function (it) {
           // 내보낸 파일을 다시 불러오면 기존 수기값·매칭 기준은 유지
           if (it.exported && prev[it.erp]) {
             it.stockOverride = prev[it.erp].stockOverride;
@@ -140,7 +148,7 @@
         .concat([r.safety, r.stockoutMonth ? r.stockoutMonth + '월' : '', r.review, r.deadline,
           r.recommended === null ? '' : r.recommended, it.adjust, it.note, it.note2]);
     });
-    return [[MASTER_SHEET + ' (대시보드 내보내기)'], head].concat(rows);
+    return [[EXPORT_SHEET + ' (대시보드 내보내기)'], head].concat(rows);
   }
 
   function sheetAoa(sheet, def) {
@@ -157,7 +165,7 @@
   function exportWorkbook(state, results) {
     var X = getXLSX();
     var wb = X.utils.book_new();
-    X.utils.book_append_sheet(wb, X.utils.aoa_to_sheet(masterAoa(results, state.settings)), MASTER_SHEET);
+    X.utils.book_append_sheet(wb, X.utils.aoa_to_sheet(masterAoa(results, state.settings)), EXPORT_SHEET);
     E.SHEETS.forEach(function (d) {
       X.utils.book_append_sheet(wb, X.utils.aoa_to_sheet(sheetAoa(state.sheets[d.key], d)), d.name);
     });
