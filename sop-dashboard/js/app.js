@@ -243,9 +243,7 @@
   }
   function pick(arr, idx) { return idx.map(function (k) { return arr[k]; }); }
   function total(arr) { return arr.reduce(function (a, b) { return a + b; }, 0); }
-  function periodLabel(months, idx) {
-    return idx.length > 1 ? months[idx[0]] + '~' + months[idx[idx.length - 1]] + '월' : months[idx[0]] + '월';
-  }
+
   function minBal(r, idx) { return Math.min.apply(null, pick(r.balance, idx)); }
 
   function filteredResults() {
@@ -312,7 +310,6 @@
     var months = E.windowMonths(state.settings);
     if (period !== 'all' && months.indexOf(period) < 0) period = 'all';
     var idx = periodIdx(months);
-    var pl = periodLabel(months, idx);
     var exc = exceptions(idx);
     var brand = prefs.brand && prefs.brand !== 'all' ? prefs.brand : null;
 
@@ -338,12 +335,12 @@
 
     h += '<details class="panel exc" id="excBox"' + (excOpen ? ' open' : '') + '>' +
       '<summary class="panel-head"><h2>발주 점검 품목 <span class="count">' + exc.length + '</span></h2>' +
-      '<span class="muted">' + pl + ' 품절 품목 · 신제품·단종 제외 · 부족량 큰 순 · 품목을 누르면 수급 계획표가 펼쳐집니다</span></summary>' +
+      '</summary>' +
       '<div id="excWrap">' + exceptionList(exc, idx) + '</div></details>';
 
     var statuses = [['all', '전체'], ['urgent', '즉시 발주'], ['review', '발주 검토'], ['watch', '품절 예상'], ['ok', '정상']];
     h += '<section class="panel" id="allItems"><div class="panel-head"><h2>' + esc(brand || '전체 품목') + ' <span class="count plain">' + scope.length + '</span></h2>' +
-      '<span class="muted">단종 제외 · 왼쪽 ▸를 누르거나 행을 누르면 수급 계획표가 펼쳐집니다 · 열 묶음 제목을 누르면 펼치기/접기</span></div>' +
+      '</div>' +
       '<div class="filters">' +
       '<input type="search" id="dashSearch" placeholder="품목군·코드·상품명 검색" value="' + esc(prefs.query || '') + '" />' +
       '<div class="seg" role="group" aria-label="상태 필터">' + statuses.map(function (s) {
@@ -359,7 +356,7 @@
 
   // 입고예정 품목의 예상 매입금액 = 입고예정 수량 × 상품단가 (월별 × 품목군별)
   function purchasePanel(months, idx) {
-    var groups = BRANDS.slice(), noPrice = { n: 0, qty: 0 };
+    var groups = BRANDS.slice();
     var rows = results.filter(function (r) { return E.hasCode(r.item.erp) && !isDiscontinued(r.item); });
     rows.forEach(function (r) { var b = brandOf(r.item); if (groups.indexOf(b) < 0) groups.push(b); });
     var amt = {}, tot = months.map(function () { return 0; });
@@ -367,14 +364,13 @@
     rows.forEach(function (r) {
       var q = total(r.inbound);
       if (!q) return;
-      if (!r.price) { noPrice.n++; noPrice.qty += q; return; }
+      if (!r.price) return; // 단가 없는 품목은 금액에서 빠짐
       r.inbound.forEach(function (v, k) { amt[brandOf(r.item)][k] += v * r.price; tot[k] += v * r.price; });
     });
     var sel = prefs.brand && prefs.brand !== 'all' ? prefs.brand : null;
     var cell = function (v, k) { return '<td class="num' + (idx.indexOf(k) >= 0 && idx.length === 1 ? ' pcol' : '') + (v ? '' : ' zero') + '">' + (v ? won(v) : '—') + '</td>'; };
     var h = '<details class="panel buy" id="buyBox"' + (buyOpen ? ' open' : '') + '><summary class="panel-head"><h2>입고예정 예상 매입금액' + (total(tot) ? ' <span class="count plain">' + won(total(tot)) + '</span>' : '') + '</h2>' +
-      '<span class="muted">입고예정 수량 × 상품단가 · 납기월 기준' +
-      (noPrice.n ? ' · 단가 미입력 ' + noPrice.n + '품목(입고예정 ' + n0(noPrice.qty) + ' EA)은 금액에서 빠짐' : '') + '</span></summary>' +
+      '</summary>' +
       '<div class="table-wrap"><table class="buy-table"><thead><tr><th>품목군</th>' +
       months.map(function (m, k) { return '<th class="num' + (idx.indexOf(k) >= 0 && idx.length === 1 ? ' pcol' : '') + '">' + m + '월</th>'; }).join('') +
       '<th class="num">합계</th></tr></thead><tbody>' +
@@ -515,62 +511,62 @@
     var mN = idx.length;
     var groups = [];
     groups.push({ label: '기본 정보', cols: [
-      { th: '<span class="sr-only">상세</span>', cls: 'sticky-t tog', td: function (r, x) {
+      { th: '<span class="sr-only">상세</span>', w: 22, cls: 'sticky-t tog', td: function (r, x) {
         return '<span class="tog-btn" aria-hidden="true"></span><span class="sr-only">' + (x.open ? '상세 닫기' : '상세 보기') + '</span>';
       } },
-      { th: '품목군', cls: 'sticky-l grp', td: function (r) { return esc(brandOf(r.item)); } },
-      { th: 'ERP코드', cls: 'sticky-l2 code', td: function (r) { return esc(r.item.erp); } },
+      { th: '품목군', w: 72, cls: 'sticky-l grp', td: function (r) { return esc(brandOf(r.item)); } },
+      { th: 'ERP코드', w: 76, cls: 'sticky-l2 code', td: function (r) { return esc(r.item.erp); } },
       { th: '상품명', cls: 'sticky-l3 name', td: function (r) { return esc(r.item.name); }, title: function (r) { return r.item.name; } }
     ] });
     groups.push({ label: '재고 현황', cols: [
-      { th: '현재고', num: true, td: function (r) { return signed(r.stock); }, neg: function (r) { return r.stock < 0; } },
-      { th: '미입고', num: true, td: function (r) { return signed(r.transit); } },
-      { th: '가용재고', num: true, td: function (r) { return signed(r.available); } },
-      { th: 'S&amp;OP 합계', num: true, td: function (r, x) { return signed(total(x.dem)); } },
-      { th: 'LT(일)', num: true, cls: 'edit', td: function (r) { return '<input type="number" min="0" data-field="lt" value="' + esc(r.item.lt) + '" aria-label="LT"' + dis() + ' />'; } },
-      { th: '재고일수', num: true, hint: '현재고 ÷ 보기 기간 월평균 S&OP', td: function (r, x) { return coverLabel(x.cv, r.stock); },
+      { th: '현재고', w: 72, num: true, td: function (r) { return signed(r.stock); }, neg: function (r) { return r.stock < 0; } },
+      { th: '미입고', w: 72, num: true, td: function (r) { return signed(r.transit); } },
+      { th: '가용재고', w: 76, num: true, td: function (r) { return signed(r.available); } },
+      { th: 'S&amp;OP 합계', w: 80, num: true, td: function (r, x) { return signed(total(x.dem)); } },
+      { th: 'LT(일)', w: 52, num: true, cls: 'edit', td: function (r) { return '<input type="number" min="0" data-field="lt" value="' + esc(r.item.lt) + '" aria-label="LT"' + dis() + ' />'; } },
+      { th: '재고일수', w: 68, num: true, hint: '현재고 ÷ 보기 기간 월평균 S&OP', td: function (r, x) { return coverLabel(x.cv, r.stock); },
         extra: function (r, x) { return r.stock <= 0 ? 'neg' : x.cv !== null && x.cv < 1 ? 'warn-t' : ''; } }
     ] });
     if (fold.flow) {
       var flow = [];
       idx.forEach(function (k) {
-        flow.push({ th: months[k] + '월<span class="sub">입고</span>', num: true, td: function (r) { return signed(r.inbound[k]); }, extra: function (r) { return r.inbound[k] ? 'in' : 'zero'; } });
+        flow.push({ th: months[k] + '월<span class="sub">입고</span>', w: 72, num: true, td: function (r) { return signed(r.inbound[k]); }, extra: function (r) { return r.inbound[k] ? 'in' : 'zero'; } });
       });
       idx.forEach(function (k) {
-        flow.push({ th: months[k] + '월<span class="sub">S&amp;OP</span>', num: true, td: function (r) { return signed(r.demand[k]); }, extra: function (r) { return r.demand[k] ? '' : 'zero'; } });
+        flow.push({ th: months[k] + '월<span class="sub">S&amp;OP</span>', w: 72, num: true, td: function (r) { return signed(r.demand[k]); }, extra: function (r) { return r.demand[k] ? '' : 'zero'; } });
       });
       groups.push({ label: '입고예정 · S&amp;OP', fold: 'flow', cols: flow });
     } else {
       groups.push({ label: '입고예정 · S&amp;OP', fold: 'flow', cols: [
-        { th: '입고 / S&amp;OP', num: true, hint: '보기 기간 합계', td: function (r, x) {
+        { th: '입고 / S&amp;OP', w: 128, num: true, hint: '보기 기간 합계', td: function (r, x) {
           return '<span class="' + (total(x.inb) ? 'in' : 'zero') + '">' + n0(total(x.inb)) + '</span> / ' + n0(total(x.dem));
         } }
       ] });
     }
     if (fold.bal) {
       var bal = idx.map(function (k) {
-        return { th: months[k] + '월<span class="sub">월말</span>', num: true, td: function (r) { return signed(r.balance[k]); },
+        return { th: months[k] + '월<span class="sub">월말</span>', w: 76, num: true, td: function (r) { return signed(r.balance[k]); },
           extra: function (r) { return 'bal' + (r.balance[k] <= 0 ? ' bal-neg' : ''); } };
       });
-      bal.push({ th: '안전재고', num: true, hint: '최근 ' + state.settings.salesAvgMonths + '개월 판매 평균 ÷ 30 × LT', td: function (r) { return signed(r.safety); }, extra: function (r) { return r.safety ? '' : 'zero'; } });
+      bal.push({ th: '안전재고', w: 76, num: true, hint: '최근 ' + state.settings.salesAvgMonths + '개월 판매 평균 ÷ 30 × LT', td: function (r) { return signed(r.safety); }, extra: function (r) { return r.safety ? '' : 'zero'; } });
       groups.push({ label: '월말 잔여 · 안전재고', fold: 'bal', cols: bal });
     } else {
       groups.push({ label: '월말 잔여 · 안전재고', fold: 'bal', cols: [
-        { th: '최저 잔여', num: true, hint: '보기 기간 월말 잔여 중 가장 낮은 값', td: function (r) { return signed(minBal(r, idx)); },
+        { th: '최저 잔여', w: 128, num: true, hint: '보기 기간 월말 잔여 중 가장 낮은 값', td: function (r) { return signed(minBal(r, idx)); },
           extra: function (r) { return 'bal' + (minBal(r, idx) <= 0 ? ' bal-neg' : ''); } }
       ] });
     }
     groups.push({ label: '검토', cols: [
-      { th: '품절 예상월', cls: 'ctr', td: function (r) { return r.stockoutMonth ? r.stockoutMonth + '월' : '<span class="muted">—</span>'; } },
-      { th: '발주', cls: 'ctr', hint: '발주 기한 (LT 안에 품절이면 발주 검토)', td: function (r) {
+      { th: '품절 예상월', w: 74, cls: 'ctr', td: function (r) { return r.stockoutMonth ? r.stockoutMonth + '월' : '<span class="muted">—</span>'; } },
+      { th: '발주', w: 84, cls: 'ctr', hint: '발주 기한 (LT 안에 품절이면 발주 검토)', td: function (r) {
         if (!r.deadline || isNew(r.item)) return '';
         var cls = r.deadline === '즉시 발주' ? 'st-critical' : r.review ? 'st-warning' : 'st-neutral';
         return '<span class="chip ' + cls + '">' + esc(r.deadline) + '</span>';
       } },
-      { th: '권장발주량', num: true, td: function (r) { return isNew(r.item) || r.recommended === null ? '' : n0(r.recommended); } }
+      { th: '권장발주량', w: 80, num: true, td: function (r) { return isNew(r.item) || r.recommended === null ? '' : n0(r.recommended); } }
     ] });
     groups.push({ label: '비고', cols: [
-      { th: '비고', cls: 'ctr', td: function (r) { return isNew(r.item) ? '<span class="chip st-new">신제품</span>' : esc(r.item.note2 || ''); } }
+      { th: '비고', w: 64, cls: 'ctr', td: function (r) { return isNew(r.item) ? '<span class="chip st-new">신제품</span>' : esc(r.item.note2 || ''); } }
     ] });
     return groups;
   }
@@ -584,7 +580,10 @@
       g.cols.forEach(function (c, ci) { flat.push({ c: c, start: ci === 0 && gi > 0, band: gi % 2 ? 'band-b' : 'band-a' }); });
     });
     var ncol = flat.length;
-    var h = '<table class="master"><thead><tr class="grp">' + groups.map(function (g, gi) {
+    // 상품명 열만 남는 폭을 쓰고 나머지는 고정 (최소 220px 보장, 넘치면 가로 스크롤)
+    var fixedW = flat.reduce(function (a, f) { return a + (f.c.w || 0); }, 0);
+    var h = '<table class="master" style="min-width:' + (fixedW + 220) + 'px"><colgroup>' +
+      flat.map(function (f) { return f.c.w ? '<col style="width:' + f.c.w + 'px">' : '<col>'; }).join('') + '</colgroup><thead><tr class="grp">' + groups.map(function (g, gi) {
       var cls = (gi === 0 ? 'sticky-l sticky-grp' : 'gs ' + (gi % 2 ? 'band-b' : 'band-a'));
       var label = g.fold
         ? '<button type="button" class="fold" data-fold="' + g.fold + '" aria-expanded="' + fold[g.fold] + '">' + (fold[g.fold] ? '▾ ' : '▸ ') + g.label + '</button>'
