@@ -438,6 +438,12 @@ th, td { white-space: nowrap; }
 .dropzone.over, .dropzone:hover { border-color: var(--accent); background: var(--in-bg); }
 .dz-title { font-weight: 700; }
 .import-sheets { display: flex; flex-direction: column; gap: 5px; }
+.imp-row { flex-wrap: wrap; gap: 6px; }
+.imp-src { color: var(--ink-2); }
+.imp-arrow { color: var(--muted); }
+.subtabs { display: flex; gap: 2px; padding: 6px 12px 0; border-bottom: 1px solid var(--line); background: var(--surface-2); }
+.subtabs button { border: 1px solid transparent; border-bottom: 0; background: none; padding: 5px 12px; cursor: pointer; color: var(--ink-2); border-radius: 4px 4px 0 0; margin-bottom: -1px; }
+.subtabs button.on { background: var(--surface); border-color: var(--line); color: var(--ink); font-weight: 700; }
 textarea {
   width: 100%; border: 1px solid var(--line-strong); border-radius: 5px; padding: 8px; background: var(--surface);
   font: 11px/1.4 Consolas, ui-monospace, Menlo, monospace; resize: vertical;

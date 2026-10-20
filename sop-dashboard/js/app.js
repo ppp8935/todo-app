@@ -9,19 +9,42 @@
   var state = E.emptyState();
   var ready = false;
   var prefs = loadPrefs();
+  // 예전 탭(재고 현황_RAW, 반제품코드)은 하위 탭으로 옮겨짐
+  prefs.sub = prefs.sub || {};
+  if (prefs.tab === 'raw') { prefs.tab = 'stock'; prefs.sub.stock = 'raw'; }
+  if (prefs.tab === 'semi') { prefs.tab = 'items'; prefs.sub.items = 'semi'; }
+
+  // 지금 화면에 보이는 데이터 키 (하위 탭 포함)
+  function curKey() {
+    var subs = SUBS[prefs.tab];
+    if (!subs) return prefs.tab;
+    var k = prefs.sub[prefs.tab];
+    return subs.some(function (x) { return x.key === k; }) ? k : subs[0].key;
+  }
   var results = [];
   var currentGrid = null;
 
   var TABS = [
     { key: 'dashboard', label: '대시보드' },
-    { key: 'items', label: '품목 설정' },
+    { key: 'items', label: '품목 상세' },
     { key: 'sop', label: 'S&OP' },
     { key: 'stock', label: '재고 현황' },
     { key: 'sales', label: '판매 실적 현황' },
-    { key: 'transit', label: '미입고 현황' },
-    { key: 'raw', label: '재고 현황_RAW' },
-    { key: 'semi', label: '반제품코드' }
+    { key: 'transit', label: '발주 현황' }
   ];
+  // 한 탭 안에서 나눠 보는 하위 탭
+  var SUBS = {
+    items: [{ key: 'items', label: '품목' }, { key: 'semi', label: '반제품 BOM' }],
+    stock: [{ key: 'stock', label: '재고 현황' }, { key: 'raw', label: 'WMS 원본 (RAW)' }]
+  };
+  // 각 데이터가 들어가는 위치 이름 (불러오기 안내에 사용)
+  var TARGET = {
+    items: '품목 상세', semi: '품목 상세 › 반제품 BOM', sop: 'S&OP', stock: '재고 현황',
+    raw: '재고 현황 › WMS 원본', sales: '판매 실적 현황', transit: '발주 현황'
+  };
+  var TITLE = {
+    sop: 'S&OP', stock: '재고 현황', raw: 'WMS 재고 원본 (RAW)', sales: '판매 실적 현황', transit: '발주 현황', semi: '반제품 BOM'
+  };
 
   // ── 저장 ─────────────────────────────────────────────
   function loadPrefs() {
@@ -147,14 +170,14 @@
     if (!ready) { view.innerHTML = '<p class="loading muted">데이터를 불러오는 중…</p>'; return; }
     if (!hasData() && prefs.tab === 'dashboard') { view.innerHTML = emptyHtml(); return; }
     if (prefs.tab === 'dashboard') { renderDashboard(view); decorateMaster(periodIdx(E.windowMonths(state.settings)).length); }
-    else if (prefs.tab === 'items') renderItems(view);
-    else renderSheet(view, prefs.tab);
+    else if (curKey() === 'items') renderItems(view);
+    else renderSheet(view, curKey());
   }
 
   function emptyHtml() {
     return '<section class="empty">' +
       '<h2>S&amp;OP 엑셀 파일을 불러오세요</h2>' +
-      '<p class="muted">원본 엑셀(S&amp;OP 관리 파일)을 한 번 불러오면 리덴스_S&amp;OP 품목(Master_리덴스 시트)과 S&amp;OP · 재고 · 판매 · 미입고 · 반제품코드 시트가 웹으로 옮겨집니다.<br>이후에는 각 탭에서 직접 수정하거나, 시트별로 엑셀에서 다시 불러오거나 붙여넣어 갱신할 수 있습니다.</p>' +
+      '<p class="muted">S&amp;OP 관리 엑셀이나 ERP·WMS에서 내려받은 파일을 그대로 올리면, 표 구성을 보고 품목·S&amp;OP·재고·판매·발주·BOM 중 맞는 곳에 반영합니다. 파일명과 시트명은 상관없습니다.</p>' +
       (Store.readOnly ? '<p class="note-box">아직 데이터가 없습니다. 대시보드 담당자가 데이터를 올리면 여기에 표시됩니다.</p>'
         : '<button class="btn btn-primary" type="button" data-open-import>엑셀 불러오기</button>') +
       '<p class="muted small">' + (Store.mode === 'shared'
@@ -336,7 +359,7 @@
       fact('가용재고', r.available) + fact('안전재고', r.safety) + '</div>';
     if (r.stockOverridden || r.transitOverridden) {
       side += '<p class="note-box">현재고/미입고는 엑셀에서 값으로 입력된 수기값을 씁니다 (조회값: 현재고 ' + n0(r.stockLookup) +
-        ', 미입고 ' + n0(r.transitLookup) + '). 품목 설정 탭에서 수기값을 비우면 자동 계산됩니다.</p>';
+        ', 미입고 ' + n0(r.transitLookup) + '). 품목 상세 탭에서 수기값을 비우면 자동 계산됩니다.</p>';
     }
     if (r.overdue.length) {
       side += '<p class="note-box warn">납기일이 ' + months[0] + '월 이전인데 잔량이 남은 발주 ' + r.overdue.length + '건(' +
@@ -351,7 +374,7 @@
     state.sheets.raw.rows.forEach(function (x) { if (stockCodes.indexOf(E.str(x[0])) >= 0) rawRows.push(x); });
     side += '<details class="more"><summary>재고 구성 (물류센터 ' + rawRows.length + '행)</summary>' +
       (rawRows.length ? miniTable(['ERP코드', '물류센터', '창고', '유통기한', '가용재고'], rawRows.map(function (x) { return [x[0], x[4], x[5], x[6], { n: x[7] }]; }))
-        : '<p class="muted pad">재고 현황_RAW에 연결된 행이 없습니다.</p>') + '</details>';
+        : '<p class="muted pad">WMS 원본(RAW)에 연결된 행이 없습니다.</p>') + '</details>';
     if (r.salesRows.length) {
       var sh = state.sheets.sales.headers, mcols = [];
       sh.forEach(function (hd, k) { if (/^\d{1,2}월$/.test(E.str(hd))) mcols.push(k); });
@@ -522,6 +545,8 @@
     var row = e.target.closest('#masterWrap tbody tr[data-i]');
     if (row && !e.target.closest('input')) { toggleRow(Number(row.dataset.i)); return; }
     if (e.target.closest('[data-open-import]')) { openImport(); return; }
+    var sub = e.target.closest('[data-sub]');
+    if (sub) { prefs.sub[prefs.tab] = sub.dataset.sub; savePrefs(); render(); return; }
     var act = e.target.closest('[data-act]');
     if (act) sheetAction(act.dataset.act);
   });
@@ -608,10 +633,26 @@
     tip.style.top = (e.clientY + 14) + 'px';
   });
 
-  // ── 품목 설정 ───────────────────────────────────────
+  // ── 품목 상세 ───────────────────────────────────────
+  // 반제품 BOM에서 모품번 = ERP코드인 자품번 목록
+  function bomIndex() {
+    var sh = state.sheets.semi, idx = {};
+    var hp = sh.headers.indexOf('모품번'), hc = sh.headers.indexOf('자품번');
+    if (hp < 0 || hc < 0) return idx;
+    sh.rows.forEach(function (r) {
+      var p = E.str(r[hp]), c = E.str(r[hc]);
+      if (!p || !c) return;
+      idx[p] = idx[p] || [];
+      if (idx[p].indexOf(c) < 0) idx[p].push(c);
+    });
+    return idx;
+  }
+  var bomCache = {};
+
   var ITEM_COLS = [
     { label: 'ERP코드', key: 'erp', width: 96 },
     { label: '반제품코드', key: 'semi', width: 96 },
+    { label: 'BOM 자품번', readOnly: true, width: 110, value: function (it) { return (bomCache[E.str(it.erp)] || []).join(', '); } },
     { label: '상품명', key: 'name', width: 320 },
     { label: '품목군', key: 'group', width: 80 },
     { label: 'LT(일)', key: 'lt', type: 'number', width: 76 },
@@ -629,10 +670,10 @@
   }
 
   function renderItems(view) {
+    bomCache = bomIndex();
     view.innerHTML = sheetShell({
-      title: '품목 설정 (리덴스_S&OP 품목 목록)',
-      desc: '대시보드에 표시할 품목과 LT를 관리합니다. <b>현재고/미입고 수기값</b>을 입력하면 시트 조회값 대신 그 값을 씁니다(비우면 자동 계산). ' +
-        '<b>S&amp;OP 매칭</b>은 S&amp;OP 시트에서 ERP 코드 조정 열로 찾을지, 상품명으로 찾을지 정합니다.',
+      title: '품목 상세',
+      desc: '',
       count: state.items.length,
       actions: ['add', 'paste'],
       sheetKey: 'items'
@@ -676,18 +717,15 @@
   }
 
   var SHEET_HELP = {
-    sop: '채널별 월 수요 계획을 입력합니다. <b>총합계·채널 합계</b>(회색)는 채널 값을 더해 자동 계산됩니다. Master는 <b>ERP 코드 조정</b> 열 기준으로 합산합니다.',
-    stock: 'ERP코드 ↔ 조정 코드 매핑표입니다. <b>가용재고</b>(회색)는 재고 현황_RAW에서 ERP코드별로 자동 합산되고, Master는 <b>ERP 코드 조정</b> 기준으로 다시 합산합니다.',
     sales: '월별 판매 실적입니다. 대시보드의 안전재고(최근 판매 평균 ÷ 30 × LT) 계산에 쓰입니다.',
-    transit: '발주 잔량 목록입니다. Master는 <b>품번</b>이 ERP코드 또는 반제품코드와 같은 행의 <b>발주잔량</b>을 미입고로, <b>납기일자</b>의 연-월로 월별 입고예정을 계산합니다.',
-    raw: '물류센터 재고 원본입니다. WMS에서 내려받은 표를 그대로 붙여넣으세요(‘붙여넣기로 갱신’ → 전체 교체).',
-    semi: '제품 ↔ 반제품(자품번) BOM 참고표입니다.'
+    transit: '가져오는 곳: ERP › 구매/자재관리 › 발주관리 › 발주마감처리에서 마감구분 <b>진행</b>으로 조회한 목록. 복사해 ‘붙여넣기로 갱신’에 붙이거나, 내려받은 파일을 ‘엑셀에서 불러오기’로 올리세요.',
+    raw: 'WMS에서 내려받은 재고현황 파일을 그대로 올리세요. 창고·소비기한별로 나뉜 행이 ERP코드별로 합산되어 ‘재고 현황’ 탭의 가용재고에 반영됩니다.'
   };
 
   function renderSheet(view, key) {
     var sheet = state.sheets[key];
     view.innerHTML = sheetShell({
-      title: sheet.name || key,
+      title: TITLE[key] || sheet.name || key,
       desc: SHEET_HELP[key] || '',
       count: sheet.rows.length,
       actions: ['add', 'paste', 'import'],
@@ -728,7 +766,7 @@
   }
 
   function searchFilter(text) {
-    var q = (prefs['q_' + prefs.tab] || '').trim().toLowerCase();
+    var q = (prefs['q_' + curKey()] || '').trim().toLowerCase();
     if (!q) return null;
     return function (row) { return String(text(row)).toLowerCase().indexOf(q) >= 0; };
   }
@@ -742,14 +780,17 @@
     var metaField = o.sheetKey !== 'items'
       ? '<label class="meta-field">업데이트 표기<input type="text" data-meta value="' + esc(o.meta || '') + '" placeholder="예: UPDATE : ' + todayStr() + '" /></label>'
       : '';
-    return '<section class="panel sheet">' +
-      '<div class="panel-head"><div><h2>' + esc(o.title) + '</h2><p class="muted desc">' + o.desc + '</p></div>' +
+    var subs = SUBS[prefs.tab];
+    var subBar = subs ? '<div class="subtabs" role="tablist">' + subs.map(function (x) {
+      var on = x.key === curKey();
+      return '<button type="button" role="tab" data-sub="' + x.key + '" class="' + (on ? 'on' : '') + '" aria-selected="' + on + '">' + esc(x.label) + '</button>';
+    }).join('') + '</div>' : '';
+    return '<section class="panel sheet">' + subBar +
+      '<div class="panel-head"><div><h2>' + esc(o.title) + '</h2>' + (o.desc ? '<p class="muted desc">' + o.desc + '</p>' : '') + '</div>' +
       '<div class="sheet-meta muted"><span id="rowCount">' + o.count.toLocaleString('ko-KR') + '행</span>' +
       (o.editedAt ? '<span>마지막 수정 ' + dateLabel(o.editedAt) + '</span>' : '') + '</div></div>' +
-      '<div class="toolbar"><input type="search" data-sheet-search placeholder="검색" value="' + esc(prefs['q_' + prefs.tab] || '') + '" />' +
+      '<div class="toolbar"><input type="search" data-sheet-search placeholder="검색" value="' + esc(prefs['q_' + curKey()] || '') + '" />' +
       (Store.readOnly ? '' : o.actions.map(function (a) { return acts[a]; }).join('') + metaField) + '</div>' +
-      (Store.readOnly ? '<p class="muted small hint">보기 전용입니다.</p>'
-        : '<p class="muted small hint">셀을 클릭해 수정 · Enter 아래로 · Tab 오른쪽으로 · 엑셀에서 복사한 범위를 셀에 붙여넣으면 그 위치부터 채워집니다.</p>') +
       '<div class="table-wrap grid-wrap" id="gridHost"></div></section>';
   }
 
@@ -761,12 +802,12 @@
   var searchTimer = null;
   view.addEventListener('input', function (e) {
     if (e.target.matches('[data-sheet-search]')) {
-      prefs['q_' + prefs.tab] = e.target.value;
+      prefs['q_' + curKey()] = e.target.value;
       savePrefs();
       clearTimeout(searchTimer);
       searchTimer = setTimeout(function () {
         if (!currentGrid) return;
-        currentGrid.o.filter = prefs.tab === 'items'
+        currentGrid.o.filter = curKey() === 'items'
           ? searchFilter(function (it) { return [it.erp, it.semi, it.name, it.note].join(' '); })
           : searchFilter(function (row) { return row.join(' '); });
         currentGrid.render();
@@ -775,13 +816,13 @@
   });
   view.addEventListener('change', function (e) {
     if (e.target.matches('[data-meta]')) {
-      state.sheets[prefs.tab].meta = e.target.value.trim();
+      state.sheets[curKey()].meta = e.target.value.trim();
       persist();
     }
   });
 
   function sheetAction(act) {
-    var key = prefs.tab;
+    var key = curKey();
     if (act === 'add') {
       if (key === 'items') state.items.push(newItem());
       else state.sheets[key].rows.push(state.sheets[key].headers.map(function () { return null; }));
@@ -804,7 +845,9 @@
 
   // ── 붙여넣기 갱신 ───────────────────────────────────
   var pasteKey = null;
-  function pasteTargetCols(key) { return key === 'items' ? ITEM_COLS : sheetColumns(key); }
+  function pasteTargetCols(key) {
+    return key === 'items' ? ITEM_COLS.filter(function (c) { return !c.readOnly; }) : sheetColumns(key);
+  }
 
   function parsePasted(key) {
     var text = document.getElementById('pasteArea').value.replace(/\r/g, '').replace(/\n+$/, '');
@@ -826,7 +869,7 @@
 
   function openPaste(key) {
     pasteKey = key;
-    var name = key === 'items' ? '품목 설정' : state.sheets[key].name;
+    var name = TARGET[key] || key;
     document.getElementById('pasteTitle').textContent = name + ' — 붙여넣기로 갱신';
     document.getElementById('pasteArea').value = '';
     document.getElementById('pastePreview').textContent = '열 순서: ' + pasteTargetCols(key).map(function (c) { return c.label; }).join(' · ');
@@ -858,11 +901,11 @@
   });
 
   // ── 엑셀 불러오기 / 내보내기 ────────────────────────
-  var pendingWb = null, importFocus = null;
+  var pending = [], importFocus = null; // pending: [{ file, wb, sheet, key, hr }]
 
   function openImport(onlyKey) {
     importFocus = onlyKey || null;
-    pendingWb = null;
+    pending = [];
     document.getElementById('fileInput').value = '';
     document.getElementById('dzFile').textContent = '';
     document.getElementById('importSheets').innerHTML = '';
@@ -870,52 +913,67 @@
     document.getElementById('importDialog').showModal();
   }
 
-  function sheetLabel(d) { return d.key === 'items' ? '품목 목록 (' + d.name + ')' : d.name; }
-
-  function handleFile(file) {
-    if (!file) return;
-    document.getElementById('dzFile').textContent = file.name + ' 읽는 중…';
-    var reader = new FileReader();
-    reader.onload = function () {
-      try {
-        pendingWb = I.readWorkbook(new Uint8Array(reader.result));
-      } catch (err) {
-        document.getElementById('dzFile').textContent = '파일을 읽을 수 없습니다: ' + err.message;
-        return;
-      }
-      var found = I.detect(pendingWb);
-      document.getElementById('dzFile').textContent = file.name;
-      if (!found.length) {
-        document.getElementById('importSheets').innerHTML = '<p class="note-box warn">인식할 수 있는 시트가 없습니다. 시트 이름이 S&amp;OP, 재고 현황, 판매 실적 현황, 미입고 현황, 재고 현황_RAW, 반제품코드, Master_리덴스(또는 리덴스_S&amp;OP) 중 하나여야 합니다.</p>';
-        return;
-      }
-      var hasItems = state.items.length > 0;
-      document.getElementById('importSheets').innerHTML = '<p class="muted">반영할 시트를 선택하세요. 선택한 시트는 웹의 기존 데이터를 <b>덮어씁니다</b>.</p>' +
-        found.map(function (d) {
-          var checked = importFocus ? d.key === importFocus : !(d.key === 'items' && hasItems);
-          var warn = d.key === 'items' && hasItems ? ' <span class="muted small">— 웹에서 수정한 LT·비고·발주 조정이 엑셀 값으로 바뀝니다</span>' : '';
-          return '<label class="check"><input type="checkbox" value="' + d.key + '"' + (checked ? ' checked' : '') + ' /> ' + esc(sheetLabel(d)) + warn + '</label>';
-        }).join('');
-      document.getElementById('importConfirm').disabled = false;
-    };
-    reader.readAsArrayBuffer(file);
+  function readFile(file) {
+    return new Promise(function (resolve) {
+      var reader = new FileReader();
+      reader.onload = function () {
+        try {
+          var wb = I.readWorkbook(new Uint8Array(reader.result));
+          resolve({ file: file.name, entries: I.scanWorkbook(wb).map(function (e) { return Object.assign({ file: file.name, wb: wb }, e); }) });
+        } catch (err) { resolve({ file: file.name, error: err.message, entries: [] }); }
+      };
+      reader.onerror = function () { resolve({ file: file.name, error: '읽기 실패', entries: [] }); };
+      reader.readAsArrayBuffer(file);
+    });
   }
 
-  document.getElementById('fileInput').addEventListener('change', function (e) { handleFile(e.target.files[0]); });
+  function handleFiles(list) {
+    var files = Array.prototype.slice.call(list || []);
+    if (!files.length) return;
+    document.getElementById('dzFile').textContent = files.length + '개 파일 읽는 중…';
+    Promise.all(files.map(readFile)).then(function (res) {
+      pending = [];
+      res.forEach(function (r) { pending = pending.concat(r.entries); });
+      document.getElementById('dzFile').textContent = files.map(function (f) { return f.name; }).join(', ');
+      var notes = res.filter(function (r) { return !r.entries.length; }).map(function (r) {
+        return '<p class="note-box warn">' + esc(r.file) + ': ' + (r.error ? '파일을 읽을 수 없습니다 (' + esc(r.error) + ')' :
+          '반영할 표를 찾지 못했습니다. S&amp;OP 계획, 재고 현황, WMS 재고 원본, 판매 실적, ERP 발주 현황, 반제품 BOM, 품목 목록 형식인지 확인해 주세요.') + '</p>';
+      }).join('');
+      if (!pending.length) { document.getElementById('importSheets').innerHTML = notes; return; }
+      var hasItems = state.items.length > 0, seen = {};
+      document.getElementById('importSheets').innerHTML =
+        '<p class="muted">표 구성을 보고 반영할 곳을 정했습니다. 선택한 항목은 웹의 기존 데이터를 <b>덮어씁니다</b>.</p>' +
+        pending.map(function (e, i) {
+          var checked = importFocus ? (e.key === importFocus && !seen[e.key]) : !seen[e.key] && !(e.key === 'items' && hasItems);
+          seen[e.key] = true;
+          var warn = e.key === 'items' && hasItems ? ' <span class="muted small">— 웹에서 수정한 LT·비고·발주 조정이 파일 값으로 바뀝니다</span>' : '';
+          return '<label class="check imp-row"><input type="checkbox" value="' + i + '"' + (checked ? ' checked' : '') + ' />' +
+            '<span class="imp-src">' + esc(e.file) + (e.sheet ? ' · ' + esc(e.sheet) : '') + '</span>' +
+            '<span class="imp-arrow" aria-hidden="true">→</span><b>' + esc(TARGET[e.key] || e.key) + '</b>' + warn + '</label>';
+        }).join('') +
+        (Object.keys(seen).some(function (k) { return pending.filter(function (e) { return e.key === k; }).length > 1; })
+          ? '<p class="muted small">같은 곳에 반영되는 항목을 여러 개 고르면 아래쪽 항목이 최종 반영됩니다.</p>' : '') + notes;
+      document.getElementById('importConfirm').disabled = false;
+    });
+  }
+
+  document.getElementById('fileInput').addEventListener('change', function (e) { handleFiles(e.target.files); });
   var dz = document.getElementById('dropzone');
   dz.addEventListener('dragover', function (e) { e.preventDefault(); dz.classList.add('over'); });
   dz.addEventListener('dragleave', function () { dz.classList.remove('over'); });
-  dz.addEventListener('drop', function (e) { e.preventDefault(); dz.classList.remove('over'); handleFile(e.dataTransfer.files[0]); });
+  dz.addEventListener('drop', function (e) { e.preventDefault(); dz.classList.remove('over'); handleFiles(e.dataTransfer.files); });
 
   document.getElementById('importConfirm').addEventListener('click', function () {
-    if (!pendingWb) return;
-    var keys = Array.prototype.map.call(document.querySelectorAll('#importSheets input:checked'), function (x) { return x.value; });
-    if (!keys.length) { toast('선택한 시트가 없습니다'); return; }
-    I.applyWorkbook(state, pendingWb, keys);
-    keys.forEach(function (k) { if (k !== 'items') markEdited(k); });
+    var picked = Array.prototype.map.call(document.querySelectorAll('#importSheets input:checked'), function (x) { return pending[Number(x.value)]; });
+    if (!picked.length) { toast('선택한 항목이 없습니다'); return; }
+    picked.forEach(function (e) {
+      I.applyEntry(state, e.wb, e);
+      if (e.key !== 'items') markEdited(e.key);
+    });
+    state.updatedAt = new Date().toISOString();
     persist();
     document.getElementById('importDialog').close();
-    toast(keys.length + '개 시트를 반영했습니다');
+    toast(picked.map(function (e) { return TARGET[e.key]; }).join(', ') + ' 반영했습니다');
     render();
   });
 

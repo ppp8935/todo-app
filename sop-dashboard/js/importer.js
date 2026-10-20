@@ -5,14 +5,7 @@
   'use strict';
 
   var E = root.SOPEngine || (typeof require !== 'undefined' ? require('./engine.js') : null);
-  var MASTER_SHEET = 'Master_리덴스';      // 원본 엑셀의 시트명
-  var EXPORT_SHEET = '리덴스_S&OP';         // 내보내기 시트명 (다시 불러올 때도 인식)
-
-  function masterName(wb) {
-    if (wb.SheetNames.indexOf(MASTER_SHEET) >= 0) return MASTER_SHEET;
-    if (wb.SheetNames.indexOf(EXPORT_SHEET) >= 0) return EXPORT_SHEET;
-    return null;
-  }
+  var EXPORT_SHEET = '리덴스_S&OP';         // 내보내기 시트명
 
   function getXLSX() {
     return root.XLSX || (typeof require !== 'undefined' ? require('xlsx') : null);
@@ -35,12 +28,97 @@
     return getXLSX().read(data, { type: 'array', cellDates: true, cellFormula: true });
   }
 
-  // 기본 구조: 1행 = 제목/그룹, 2행 = 헤더, 3행~ = 데이터 (headerRow로 조정)
+  function norm(h) { return String(h === null || h === undefined ? '' : h).replace(/\s+/g, '').toLowerCase(); }
+
+  // ── 구조로 시트 종류 알아내기 ─────────────────────────
+  // 파일명·시트명과 관계없이, 위쪽 10행 안에서 헤더 행을 찾아 열 구성으로 판단합니다.
+  function has(set, names) { return names.some(function (n) { return set.indexOf(norm(n)) >= 0; }); }
+  function monthCount(set) { return set.filter(function (h) { return /^\d{1,2}월$/.test(h); }).length; }
+
+  var SIGNATURES = [
+    { key: 'items', test: function (h) { return has(h, ['ERP코드']) && has(h, ['반제품코드']) && has(h, ['현재고']) && has(h, ['LT']); } },
+    { key: 'sop', test: function (h) { return has(h, ['ERP 코드 조정']) && has(h, ['총합계']) && monthCount(h) >= 9; } },
+    { key: 'transit', test: function (h) { return has(h, ['발주번호']) && has(h, ['품번', '품목코드']) && has(h, ['발주잔량', '잔량', '미입고수량']); } },
+    { key: 'semi', test: function (h) { return has(h, ['모품번']) && has(h, ['자품번']); } },
+    { key: 'raw', test: function (h) { return has(h, ['물류센터', '센터', '창고', '창고명']) && has(h, ['가용재고', '가용수량', '재고수량']) && has(h, ['상품명', '품명']); } },
+    { key: 'sales', test: function (h) { return has(h, ['ERP 코드 조정']) && has(h, ['상품코드']) && monthCount(h) >= 1; } },
+    { key: 'stock', test: function (h) { return has(h, ['ERP 코드 조정']) && has(h, ['가용재고']); } }
+  ];
+
+  function classify(ws) {
+    var X = getXLSX();
+    var aoa = X.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null, blankrows: true });
+    for (var r = 0; r < Math.min(10, aoa.length); r++) {
+      var h = (aoa[r] || []).map(norm).filter(Boolean);
+      if (h.length < 3) continue;
+      for (var k = 0; k < SIGNATURES.length; k++) {
+        if (SIGNATURES[k].test(h)) return { key: SIGNATURES[k].key, hr: r };
+      }
+    }
+    return null;
+  }
+
+  // 파일 하나에서 인식된 시트 목록: [{ key, sheet, hr }]
+  function scanWorkbook(wb) {
+    var out = [];
+    wb.SheetNames.forEach(function (name) {
+      var c = classify(wb.Sheets[name]);
+      if (c) out.push({ key: c.key, sheet: name, hr: c.hr });
+    });
+    return out;
+  }
+
+  // 열 순서가 다른 원본(WMS·ERP 다운로드)도 계산에 쓰는 순서로 맞춤
+  var CANON = {
+    raw: [
+      ['대표코드(ERP)', ['대표코드(ERP)', '대표코드', 'ERP코드', 'ERP']],
+      ['상품코드', ['상품코드', '상품번호']],
+      ['상품명', ['상품명', '품명']],
+      ['바코드', ['바코드']],
+      ['물류센터', ['물류센터', '센터', '센터명']],
+      ['창고', ['창고', '창고명']],
+      ['유통기한', ['유통기한', '소비기한', '유효기한']],
+      ['가용재고', ['가용재고', '가용수량', '재고수량']]
+    ],
+    transit: [
+      ['No', ['No', 'No.']], ['마감여부', ['마감여부']], ['발주번호', ['발주번호']], ['L/C', ['L/C']],
+      ['발주일자', ['발주일자', '발주일']], ['거래처', ['거래처', '거래처명']], ['순번', ['순번']],
+      ['품번', ['품번', '품목코드']], ['품명', ['품명', '품목명']], ['규격', ['규격']], ['관리단위', ['관리단위', '단위']],
+      ['환종', ['환종']], ['환율', ['환율']], ['발주수량', ['발주수량']], ['발주잔량', ['발주잔량', '잔량', '미입고수량']],
+      ['마감일자', ['마감일자']], ['마감사유', ['마감사유']], ['납기일자', ['납기일자', '납기일', '입고예정일']],
+      ['담당자', ['담당자']], ['관리번호', ['관리번호']], ['비고(건)', ['비고(건)']], ['관리구분', ['관리구분']],
+      ['프로젝트', ['프로젝트']], ['비고(내역)', ['비고(내역)']]
+    ]
+  };
+
+  function canonicalize(sheet, key) {
+    var spec = CANON[key];
+    if (!spec) return sheet;
+    var src = sheet.headers.map(norm);
+    var used = {};
+    var map = spec.map(function (s) {
+      for (var i = 0; i < s[1].length; i++) {
+        var j = src.indexOf(norm(s[1][i]));
+        if (j >= 0 && !used[j]) { used[j] = true; return j; }
+      }
+      return -1;
+    });
+    var extra = [];
+    src.forEach(function (h, j) { if (!used[j] && h) extra.push(j); });
+    sheet.headers = spec.map(function (s) { return s[0]; }).concat(extra.map(function (j) { return sheet.headers[j]; }));
+    sheet.rows = sheet.rows.map(function (r) {
+      return map.map(function (j) { return j >= 0 ? r[j] : null; }).concat(extra.map(function (j) { return r[j]; }));
+    });
+    sheet.groups = [];
+    return sheet;
+  }
+
+  // 헤더 행(hr) 위는 제목·그룹, 아래는 데이터
   function parseSheet(ws, name, headerRow) {
     var X = getXLSX();
     var hr = headerRow === undefined ? 1 : headerRow;
-    var aoa = X.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null, blankrows: false });
-    var top = hr > 0 ? (aoa[0] || []).map(cleanValue) : [];
+    var aoa = X.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null, blankrows: true });
+    var top = hr > 0 ? (aoa[hr - 1] || []).map(cleanValue) : [];
     var headers = (aoa[hr] || []).map(function (h) { return h === null ? '' : String(h).trim(); });
     var width = headers.length;
     while (width > 0 && headers[width - 1] === '') width--;
@@ -52,11 +130,12 @@
     });
     groups.forEach(function (g, k) { g.span = (k + 1 < groups.length ? groups[k + 1].start : width) - g.start; });
 
-    var meta = top.filter(function (v) { return v !== null && /UPDATE/i.test(String(v)); }).join(' ').trim();
+    var meta = aoa.slice(0, hr).reduce(function (acc, row) { return acc.concat(row || []); }, [])
+      .filter(function (v) { return v !== null && /UPDATE/i.test(String(v)); }).join(' ').trim();
 
     var rows = aoa.slice(hr + 1).map(function (r) {
       var out = [];
-      for (var i = 0; i < width; i++) out.push(cleanValue(r[i]));
+      for (var i = 0; i < width; i++) out.push(cleanValue((r || [])[i]));
       return out;
     }).filter(function (r) {
       return !isEmptyRow(r) && String(r[0] || '').trim() !== '합계';
@@ -67,68 +146,83 @@
     return { name: name, meta: meta, headers: headers, groups: groups, rows: rows };
   }
 
-  function parseMaster(ws) {
+  // 품목 목록(Master_리덴스, Master_전체, 대시보드 내보내기)을 헤더 이름으로 읽음
+  function parseMaster(ws, headerRow) {
     var X = getXLSX();
     var range = X.utils.decode_range(ws['!ref']);
     var items = [];
+    var hr = headerRow === undefined ? 1 : headerRow;
     function cell(r, c) { return ws[X.utils.encode_cell({ r: r, c: c })]; }
-    function val(r, c) { var x = cell(r, c); return x ? cleanValue(x.v) : null; }
+    function val(r, c) { if (c < 0) return null; var x = cell(r, c); return x ? cleanValue(x.v) : null; }
+    var heads = [];
+    for (var c = 0; c <= range.e.c; c++) heads.push(norm(val(hr, c)));
+    function col(names) {
+      for (var i = 0; i < names.length; i++) { var j = heads.indexOf(norm(names[i])); if (j >= 0) return j; }
+      return -1;
+    }
+    var cErp = col(['ERP코드']), cSemi = col(['반제품코드']), cName = col(['상품명']), cGroup = col(['품목군']);
+    var cStock = col(['현재고']), cTransit = col(['미입고']), cLt = col(['LT', 'LT(일)']);
+    var cAdj = col(['발주조정']), cNote = col(['비고']);
+    var cNote2 = cNote >= 0 && !heads[cNote + 1] ? cNote + 1 : col(['비고2']);
+    var cSop = heads.findIndex(function (h) { return /^\d{1,2}월s&op$/.test(h); });
     // 이 대시보드에서 내보낸 파일은 수식이 없으므로 수기값 여부를 판단할 수 없음
     var exported = /대시보드 내보내기/.test(String(val(0, 0) || ''));
-    for (var r = 2; r <= range.e.r; r++) {
-      var erp = val(r, 0);
+    for (var r = hr + 1; r <= range.e.r; r++) {
+      var erp = val(r, cErp);
       if (erp === null || String(erp).trim() === '') continue;
-      var e = cell(r, 4), f = cell(r, 5), n = cell(r, 13);
+      var e = cStock >= 0 ? cell(r, cStock) : null, f = cTransit >= 0 ? cell(r, cTransit) : null, n = cSop >= 0 ? cell(r, cSop) : null;
+      var str = function (v, d) { return v === null ? d : String(v).trim(); };
       items.push({
         erp: String(erp).trim(),
-        semi: val(r, 1) === null ? '-' : String(val(r, 1)).trim(),
-        name: val(r, 2) === null ? '' : String(val(r, 2)).trim(),
-        group: val(r, 3) === null ? '' : String(val(r, 3)).trim(),
-        lt: E.num(val(r, 8)),
+        semi: str(val(r, cSemi), '-'),
+        name: str(val(r, cName), ''),
+        group: str(val(r, cGroup), ''),
+        lt: E.num(val(r, cLt)),
         // 수식 대신 값이 직접 입력된 행(신제품 등)은 수기 입력값으로 보존
         stockOverride: !exported && e && !e.f ? E.num(e.v) : null,
         transitOverride: !exported && f && !f.f ? E.num(f.v) : null,
         sopMatch: n && n.f && /\$C:\$C/.test(n.f) ? 'name' : 'code',
         exported: exported,
-        adjust: val(r, 26) === null ? '' : val(r, 26),
-        note: val(r, 27) === null ? '' : String(val(r, 27)),
-        note2: val(r, 28) === null ? '' : String(val(r, 28))
+        adjust: val(r, cAdj) === null ? '' : val(r, cAdj),
+        note: str(val(r, cNote), ''),
+        note2: str(val(r, cNote2), '')
       });
     }
     return items;
   }
 
-  // 워크북에서 인식 가능한 시트 목록
+  // 인식된 시트 하나를 상태에 반영
+  function applyEntry(state, wb, entry) {
+    var ws = wb.Sheets[entry.sheet];
+    if (entry.key === 'items') {
+      var prev = {};
+      state.items.forEach(function (it) { prev[it.erp] = it; });
+      state.items = parseMaster(ws, entry.hr).map(function (it) {
+        // 내보낸 파일을 다시 불러오면 기존 수기값·매칭 기준은 유지
+        if (it.exported && prev[it.erp]) {
+          it.stockOverride = prev[it.erp].stockOverride;
+          it.transitOverride = prev[it.erp].transitOverride;
+          it.sopMatch = prev[it.erp].sopMatch;
+        }
+        delete it.exported;
+        return it;
+      });
+      return;
+    }
+    var def = E.SHEETS.filter(function (d) { return d.key === entry.key; })[0];
+    if (!def) return;
+    state.sheets[entry.key] = canonicalize(parseSheet(ws, def.name, entry.hr), entry.key);
+  }
+
+  // 예전 방식 호환: 워크북에서 종류별 첫 시트
   function detect(wb) {
-    var found = [];
-    var mn = masterName(wb);
-    if (mn) found.push({ key: 'items', name: mn });
-    E.SHEETS.forEach(function (d) {
-      if (wb.SheetNames.indexOf(d.name) >= 0) found.push({ key: d.key, name: d.name });
-    });
-    return found;
+    var seen = {};
+    return scanWorkbook(wb).filter(function (e) { if (seen[e.key]) return false; seen[e.key] = true; return true; })
+      .map(function (e) { return { key: e.key, name: e.sheet, hr: e.hr, sheet: e.sheet }; });
   }
 
   function applyWorkbook(state, wb, keys) {
-    keys.forEach(function (key) {
-      if (key === 'items') {
-        var prev = {};
-        state.items.forEach(function (it) { prev[it.erp] = it; });
-        state.items = parseMaster(wb.Sheets[masterName(wb)]).map(function (it) {
-          // 내보낸 파일을 다시 불러오면 기존 수기값·매칭 기준은 유지
-          if (it.exported && prev[it.erp]) {
-            it.stockOverride = prev[it.erp].stockOverride;
-            it.transitOverride = prev[it.erp].transitOverride;
-            it.sopMatch = prev[it.erp].sopMatch;
-          }
-          delete it.exported;
-          return it;
-        });
-        return;
-      }
-      var def = E.SHEETS.filter(function (d) { return d.key === key; })[0];
-      if (def) state.sheets[key] = parseSheet(wb.Sheets[def.name], def.name, def.headerRow);
-    });
+    detect(wb).forEach(function (e) { if (keys.indexOf(e.key) >= 0) applyEntry(state, wb, e); });
     state.updatedAt = new Date().toISOString();
     return state;
   }
@@ -173,8 +267,9 @@
   }
 
   var api = {
-    MASTER_SHEET: MASTER_SHEET,
     readWorkbook: readWorkbook,
+    scanWorkbook: scanWorkbook,
+    applyEntry: applyEntry,
     parseSheet: parseSheet,
     parseMaster: parseMaster,
     detect: detect,

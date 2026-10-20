@@ -10,7 +10,7 @@
     { key: 'sop',     name: 'S&OP',        computed: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13] },
     { key: 'stock',   name: '재고 현황',     computed: [4] },
     { key: 'sales',   name: '판매 실적 현황', computed: [] },
-    { key: 'transit', name: '미입고 현황',    computed: [] },
+    { key: 'transit', name: '발주 현황',      computed: [] },
     { key: 'raw',     name: '재고 현황_RAW', computed: [] },
     { key: 'semi',    name: '반제품코드',     computed: [], headerRow: 0 } // 제목 행 없이 1행이 헤더
   ];

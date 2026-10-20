@@ -46,7 +46,7 @@
   }
 
   // 열에 key가 있으면 객체 행(row[key]), 없으면 배열 행(row[index])
-  function getv(row, col, ci) { return col.key ? row[col.key] : row[ci]; }
+  function getv(row, col, ci) { return col.value ? col.value(row) : col.key ? row[col.key] : row[ci]; }
   function setv(row, col, ci, v) { if (col.key) row[col.key] = v; else row[ci] = v; }
 
   function SOPGrid(el, opts) {
