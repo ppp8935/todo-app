@@ -163,18 +163,21 @@
       '</section>';
   }
 
-  // ── 대시보드 ─────────────────────────────────────────
+  // ── 대시보드 (A 관제형 + B 수급 계획표) ─────────────
   var STATUS = {
-    urgent: { label: '즉시 발주', icon: '!', cls: 'st-critical' },
-    review: { label: '발주 검토', icon: '▲', cls: 'st-warning' },
-    watch:  { label: '품절 예상', icon: '●', cls: 'st-serious' },
-    ok:     { label: '정상', icon: '✓', cls: 'st-good' }
+    urgent: { label: '즉시 발주', cls: 'st-critical', rank: 0 },
+    review: { label: '발주 검토', cls: 'st-warning', rank: 1 },
+    watch:  { label: '품절 예상', cls: 'st-neutral', rank: 2 },
+    ok:     { label: '정상', cls: 'st-good', rank: 3 }
   };
+  var selected = null; // 오른쪽 수급 계획표에 보여줄 품목 index
+
+  function inScope(r) { return !(prefs.hideDiscontinued && isDiscontinued(r.item)); }
 
   function filteredResults() {
     var q = (prefs.query || '').trim().toLowerCase();
     return results.filter(function (r) {
-      if (prefs.hideDiscontinued && isDiscontinued(r.item)) return false;
+      if (!inScope(r)) return false;
       if (prefs.status !== 'all' && r.status !== prefs.status) return false;
       if (!q) return true;
       var it = r.item;
@@ -182,74 +185,201 @@
     });
   }
 
+  function minBal(r) { return Math.min.apply(null, r.balance); }
+  function avgDemand(r) { return r.demandTotal / Math.max(1, r.months.length); }
+
+  // 재고일수(개월) = 재고 ÷ 월 수요. 수요가 없으면 null
+  function cover(stock, demand) { return demand > 0 ? stock / demand : null; }
+  function coverLabel(c, stock) {
+    if (stock <= 0) return '품절';
+    if (c === null) return '—';
+    return (c >= 10 ? Math.round(c) : c.toFixed(1)) + '개월';
+  }
+  function heat(stock, c) {
+    if (stock <= 0) return 'h-crit';
+    if (c !== null && c < 1) return 'h-warn';
+    return 'h-good';
+  }
+
+  // 발주 필요 품목: 즉시 발주 → 발주 검토 → 품절 예상, 같은 단계 안에서는 부족량 큰 순
+  function exceptions() {
+    return results.filter(function (r) { return inScope(r) && r.status !== 'ok'; })
+      .sort(function (a, b) { return STATUS[a.status].rank - STATUS[b.status].rank || minBal(a) - minBal(b); });
+  }
+
   function renderDashboard(view) {
-    var scope = results.filter(function (r) { return !(prefs.hideDiscontinued && isDiscontinued(r.item)); });
-    var count = function (st) { return scope.filter(function (r) { return r.status === st; }).length; };
-    var stockout = scope.filter(function (r) { return r.stockoutMonth; }).length;
-    var sum = function (k) { return scope.reduce(function (s, r) { return s + r[k]; }, 0); };
+    var scope = results.filter(inScope);
     var months = E.windowMonths(state.settings);
+    var exc = exceptions();
+    if (selected === null || !results[selected]) selected = exc.length ? exc[0].index : (scope[0] ? scope[0].index : null);
+
+    var sum = function (f) { return scope.reduce(function (s, r) { return s + f(r); }, 0); };
+    var urgent = scope.filter(function (r) { return r.status === 'urgent'; }).length;
+    var review = scope.filter(function (r) { return r.status === 'review'; }).length;
+    var totalStock = sum(function (r) { return r.stock; });
+    var monthlyDemand = sum(avgDemand);
+    var avgCover = cover(totalStock, monthlyDemand);
+    var recTotal = sum(function (r) { return r.status === 'urgent' || r.status === 'review' ? (r.recommended || 0) : 0; });
     var discCount = results.filter(function (r) { return isDiscontinued(r.item); }).length;
 
-    var summary = '<section class="kpis">' +
-      kpi('즉시 발주', count('urgent'), '품목', 'st-critical', '발주 기한이 이미 지났거나 오늘인 품목') +
-      kpi('발주 검토', count('review'), '품목', 'st-warning', 'LT 안에 품절 예상 · 발주 기한은 남음') +
-      kpi('품절 예상', stockout, '품목', '', months[0] + '~' + months[months.length - 1] + '월 중 월말잔여 ≤ 0') +
-      kpi('현재고 합계', n0(sum('stock')), 'EA', '', '재고 현황 기준') +
-      kpi('미입고 합계', n0(sum('transit')), 'EA', '', '미입고 현황 발주잔량') +
+    var h = '<div class="scopebar">' +
+      '<span class="scope-chip">검토 ' + months[0] + '~' + months[months.length - 1] + '월</span>' +
+      '<span class="scope-chip">기준일 ' + todayStr() + '</span>' +
+      '<label class="check"><input type="checkbox" id="hideDisc"' + (prefs.hideDiscontinued ? ' checked' : '') + ' /> 단종 제외 (' + discCount + ')</label>' +
+      '</div>';
+
+    h += '<section class="kpis">' +
+      kpi('즉시 발주', urgent, '품목', 'crit', review ? '발주 검토 ' + review + '품목 별도' : '발주 기한이 지났거나 오늘') +
+      kpi('평균 재고일수', avgCover === null ? '—' : avgCover.toFixed(1), '개월', '', '현재고 ÷ 월평균 S&OP') +
+      kpi('미입고 잔량', n0(sum(function (r) { return r.transit; })), 'EA', '', '발주 잔량 합계') +
+      kpi('권장 발주량 합계', n0(recTotal), 'EA', '', '즉시 발주·발주 검토 품목, MOQ ' + n0(state.settings.moq) + ' 적용') +
       '</section>';
 
-    // 조치 필요 목록
-    var action = scope.filter(function (r) { return r.status === 'urgent' || r.status === 'review'; })
-      .sort(function (a, b) { return a.stockoutIndex - b.stockoutIndex || a.balance[a.stockoutIndex] - b.balance[b.stockoutIndex]; });
-    summary += '<section class="panel"><div class="panel-head"><h2>조치 필요 품목</h2><span class="muted">' + action.length + '개 · 품절 예상월 빠른 순</span></div>';
-    if (action.length) {
-      summary += '<ul class="action-list">' + action.map(function (r) {
-        var st = STATUS[r.status];
-        return '<li><button type="button" class="action-item" data-detail="' + r.index + '">' +
-          '<span class="chip ' + st.cls + '"><span aria-hidden="true">' + st.icon + '</span>' + esc(r.deadline || st.label) + '</span>' +
-          '<span class="ai-name">' + esc(r.item.name) + '<span class="ai-code">' + esc(r.item.erp) + '</span></span>' +
-          '<span class="ai-meta"><span>품절 예상 <b>' + r.stockoutMonth + '월</b></span>' +
-          '<span>최저 잔여 <b class="' + (Math.min.apply(null, r.balance) < 0 ? 'neg' : '') + '">' + signed(Math.min.apply(null, r.balance)) + '</b></span>' +
-          '<span>권장 <b>' + n0(r.recommended) + '</b></span></span>' +
-          '</button></li>';
-      }).join('') + '</ul>';
-    } else {
-      summary += '<p class="muted pad">현재 조치가 필요한 품목이 없습니다.</p>';
-    }
-    summary += '</section>';
+    h += '<div class="work">' +
+      '<section class="panel exc" aria-labelledby="excTitle"><div class="panel-head"><h2 id="excTitle">발주 필요 품목</h2>' +
+      '<span class="muted">' + exc.length + '개 · 부족량 큰 순</span></div>' + exceptionList(exc) + '</section>' +
+      '<section class="panel plan" id="planPanel" aria-live="polite">' + planHtml(results[selected]) + '</section>' +
+      '</div>';
 
-    // 필터 + Master 표
-    var statuses = [['all', '전체'], ['urgent', '즉시 발주'], ['review', '발주 검토'], ['watch', '품절 예상(여유)'], ['ok', '정상']];
-    // 표를 먼저, 요약(KPI·조치 필요 품목)은 아래에
-    var h = '<section class="panel"><div class="panel-head"><h2>리덴스_S&amp;OP</h2>' +
-      '<span class="muted">LT · 발주 조정 · 비고는 표에서 바로 수정할 수 있습니다</span></div>' +
+    // 전체 품목 (리덴스_S&OP)
+    var statuses = [['all', '전체'], ['urgent', '즉시 발주'], ['review', '발주 검토'], ['watch', '품절 예상'], ['ok', '정상']];
+    h += '<section class="panel" id="allItems"><div class="panel-head"><h2>리덴스_S&amp;OP 전체 품목</h2>' +
+      '<span class="muted">행을 누르면 위 수급 계획표에 표시 · LT·발주 조정·비고는 바로 수정</span></div>' +
       '<div class="filters">' +
       '<input type="search" id="dashSearch" placeholder="코드·상품명·비고 검색" value="' + esc(prefs.query || '') + '" />' +
       '<div class="seg" role="group" aria-label="상태 필터">' + statuses.map(function (s) {
         return '<button type="button" data-status="' + s[0] + '" class="' + (prefs.status === s[0] ? 'on' : '') + '" aria-pressed="' + (prefs.status === s[0]) + '">' + s[1] + '</button>';
-      }).join('') + '</div>' +
-      '<label class="check"><input type="checkbox" id="hideDisc"' + (prefs.hideDiscontinued ? ' checked' : '') + ' /> 단종 품목 숨기기 (' + discCount + ')</label>' +
-      '</div>' +
-      '<div class="table-wrap" id="masterWrap">' + masterTable(months) + '</div></section>' + summary;
+      }).join('') + '</div></div>' +
+      '<div class="table-wrap" id="masterWrap">' + masterTable(months) + '</div></section>';
 
     view.innerHTML = h;
   }
 
   function kpi(label, value, unit, cls, hint) {
-    return '<div class="kpi ' + cls + '" title="' + esc(hint) + '"><span class="kpi-label">' +
-      (cls ? '<span class="dot" aria-hidden="true"></span>' : '') + esc(label) + '</span>' +
+    return '<div class="kpi ' + cls + '"><span class="kpi-label">' + esc(label) + '</span>' +
       '<span class="kpi-value">' + value + '<small>' + unit + '</small></span><span class="kpi-hint">' + esc(hint) + '</span></div>';
+  }
+
+  function exceptionList(exc) {
+    if (!exc.length) return '<p class="muted pad">발주가 필요한 품목이 없습니다.</p>';
+    return '<div class="exc-head"><span></span><span>품목</span><span>상태</span><span class="num">최저 잔여</span><span class="num">권장</span></div>' +
+      '<ul class="exc-list">' + exc.map(function (r) {
+        var st = STATUS[r.status], mb = minBal(r);
+        return '<li><button type="button" class="exc-row ' + st.cls + (r.index === selected ? ' sel' : '') + '" data-select="' + r.index + '"' +
+          (r.index === selected ? ' aria-current="true"' : '') + '>' +
+          '<i aria-hidden="true"></i>' +
+          '<span class="nm">' + esc(r.item.name) + '<em>' + esc(r.item.erp) + '</em></span>' +
+          '<span class="chip ' + st.cls + '">' + esc(r.stockoutMonth + '월 품절') + '</span>' +
+          '<span class="num ' + (mb < 0 ? 'neg' : '') + '">' + signed(mb) + '</span>' +
+          '<span class="num">' + n0(r.recommended) + '</span>' +
+          '</button></li>';
+      }).join('') + '</ul>';
+  }
+
+  // B: 선택 품목의 월별 수급 계획표
+  function planHtml(r) {
+    if (!r) return '<p class="muted pad">품목을 선택하세요.</p>';
+    var it = r.item, months = r.months;
+    var st = STATUS[r.status];
+    var opening = [], c = [];
+    var bal = r.stock;
+    months.forEach(function (m, k) {
+      opening.push(bal);
+      bal = r.balance[k];
+      var next = k + 1 < months.length ? r.demand[k + 1] : r.demand[k];
+      c.push(cover(r.balance[k], next));
+    });
+
+    var h = '<div class="panel-head plan-head"><div><h2>' + esc(it.name) + '</h2>' +
+      '<p class="muted">' + esc(it.erp) + (it.semi && it.semi !== '-' && it.semi !== it.erp ? ' · 반제품 ' + esc(it.semi) : '') +
+      (it.note ? ' · ' + esc(it.note) : '') + ' · LT ' + r.lt + '일</p></div>' +
+      '<div class="plan-status"><span class="chip ' + st.cls + '">' + esc(r.deadline || st.label) + '</span>' +
+      (r.recommended ? '<span>권장 <b class="num">' + n0(r.recommended) + '</b></span>' : '') +
+      (r.deadlineDate && r.deadline && r.deadline !== '즉시 발주' ? '<span>기한 <b class="num">' + r.deadlineDate.toISOString().slice(0, 10) + '</b></span>' : '') +
+      '</div></div>';
+
+    h += '<div class="table-wrap"><table class="plan-table"><thead><tr><th>항목</th>' +
+      months.map(function (m) { return '<th class="num">' + m + '월</th>'; }).join('') + '</tr></thead><tbody>' +
+      planRow('기초재고', opening) +
+      planRow('+ 입고예정', r.inbound, 'in') +
+      planRow('− S&amp;OP 수요', r.demand) +
+      '<tr class="end"><th scope="row">= 기말재고</th>' + r.balance.map(function (v, k) {
+        return '<td class="num ' + heat(v, c[k]) + '">' + signed(v) + '</td>';
+      }).join('') + '</tr>' +
+      '<tr class="cov"><th scope="row">재고일수</th>' + r.balance.map(function (v, k) {
+        return '<td class="num">' + coverLabel(c[k], v) + '</td>';
+      }).join('') + '</tr>' +
+      '</tbody></table></div>' +
+      '<p class="plan-legend muted"><span><i class="lg h-crit"></i>품절</span><span><i class="lg h-warn"></i>1개월 미만</span><span><i class="lg h-good"></i>1개월 이상</span>' +
+      '<span>재고일수 = 기말재고 ÷ 다음 달 S&amp;OP</span></p>';
+
+    h += '<div class="plan-facts">' +
+      fact('현재고', r.stock, r.stockOverridden ? '수기값' : '') + fact('미입고', r.transit, r.transitOverridden ? '수기값' : '') +
+      fact('가용재고', r.available) + fact('안전재고', r.safety) + '</div>';
+
+    if (r.stockOverridden || r.transitOverridden) {
+      h += '<p class="note-box">현재고/미입고는 엑셀에서 값으로 입력된 수기값을 씁니다 (조회값: 현재고 ' + n0(r.stockLookup) +
+        ', 미입고 ' + n0(r.transitLookup) + '). 품목 설정 탭에서 수기값을 비우면 자동 계산됩니다.</p>';
+    }
+    if (r.overdue.length) {
+      h += '<p class="note-box warn">납기일이 ' + months[0] + '월 이전인데 잔량이 남은 발주 ' + r.overdue.length + '건(' +
+        n0(r.overdue.reduce(function (s, x) { return s + E.num(x[14]); }, 0)) + ' EA)은 월별 입고예정에 들어가지 않습니다.</p>';
+    }
+
+    h += '<details class="more"><summary>월말 잔여 차트</summary>' + balanceBars(months, r.balance) + '</details>';
+    h += '<details class="more"><summary>미입고 발주 ' + r.poLines.length + '건</summary>' +
+      (r.poLines.length ? miniTable(['발주번호', '거래처', '품번', '발주수량', '잔량', '납기일자', '담당자'],
+        r.poLines.map(function (p) { return [p[2], p[5], p[7], { n: p[13] }, { n: p[14] }, p[17], p[18]]; })) : '<p class="muted pad">없음</p>') + '</details>';
+
+    var rawRows = [];
+    var stockCodes = r.stockRows.map(function (s) { return E.str(s[0]); });
+    state.sheets.raw.rows.forEach(function (x) { if (stockCodes.indexOf(E.str(x[0])) >= 0) rawRows.push(x); });
+    h += '<details class="more"><summary>재고 구성 (물류센터 ' + rawRows.length + '행)</summary>' +
+      (rawRows.length ? miniTable(['ERP코드', '물류센터', '창고', '유통기한', '가용재고'], rawRows.map(function (x) { return [x[0], x[4], x[5], x[6], { n: x[7] }]; }))
+        : '<p class="muted pad">재고 현황_RAW에 연결된 행이 없습니다.</p>') + '</details>';
+
+    if (r.salesRows.length) {
+      var sh = state.sheets.sales.headers, mcols = [];
+      sh.forEach(function (hd, k) { if (/^\d{1,2}월$/.test(E.str(hd))) mcols.push(k); });
+      h += '<details class="more"><summary>판매 실적</summary>' + miniTable(['ERP코드'].concat(mcols.map(function (k) { return sh[k]; })),
+        r.salesRows.map(function (s) { return [s[0]].concat(mcols.map(function (k) { return { n: s[k] }; })); })) + '</details>';
+    }
+    return h;
+  }
+
+  function planRow(label, vals, cls) {
+    return '<tr><th scope="row">' + label + '</th>' + vals.map(function (v) {
+      return '<td class="num' + (cls && v ? ' ' + cls : '') + (v ? '' : ' zero') + '">' + signed(v) + '</td>';
+    }).join('') + '</tr>';
+  }
+
+  function fact(label, v, tag) {
+    return '<div><span>' + esc(label) + (tag ? ' <em>' + esc(tag) + '</em>' : '') + '</span><b class="num' + (v < 0 ? ' neg' : '') + '">' + signed(v) + '</b></div>';
+  }
+
+  function selectItem(i, scroll) {
+    selected = i;
+    var panel = document.getElementById('planPanel');
+    if (!panel) return;
+    panel.innerHTML = planHtml(results[i]);
+    document.querySelectorAll('.exc-row').forEach(function (b) {
+      var on = Number(b.dataset.select) === i;
+      b.classList.toggle('sel', on);
+      if (on) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current');
+    });
+    document.querySelectorAll('#masterWrap tbody tr').forEach(function (tr) { tr.classList.toggle('sel', Number(tr.dataset.i) === i); });
+    if (scroll) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   function masterTable(months) {
     var rows = filteredResults();
     var mN = months.length;
     var h = '<table class="master"><thead><tr class="grp">' +
-      '<th colspan="2" class="sticky-l">기본 정보</th><th colspan="5">재고 현황</th>' +
+      '<th colspan="2" class="sticky-l">기본 정보</th><th colspan="6">재고 현황</th>' +
       '<th colspan="' + mN + '">입고예정</th><th colspan="' + mN + '">S&amp;OP</th><th colspan="' + mN + '">월말 잔여</th>' +
       '<th>안전재고</th><th colspan="5">검토</th><th>비고</th></tr><tr>' +
-      '<th class="sticky-l">ERP코드<br><span class="sub">반제품</span></th><th class="sticky-l2">상품명</th>' +
-      '<th class="num">현재고</th><th class="num">미입고</th><th class="num">가용재고</th><th class="num">S&amp;OP 합계</th><th class="num">LT(일)</th>' +
+      '<th class="sticky-l">ERP코드</th><th class="sticky-l2">상품명</th>' +
+      '<th class="num">현재고</th><th class="num">미입고</th><th class="num">가용재고</th><th class="num">S&amp;OP 합계</th><th class="num">LT(일)</th><th class="num" title="현재고 ÷ 월평균 S&amp;OP">재고일수</th>' +
       months.map(function (m) { return '<th class="num">' + m + '월</th>'; }).join('') +
       months.map(function (m) { return '<th class="num">' + m + '월</th>'; }).join('') +
       months.map(function (m) { return '<th class="num">' + m + '월</th>'; }).join('') +
@@ -259,27 +389,28 @@
     rows.forEach(function (r) {
       var it = r.item;
       var disc = isDiscontinued(it);
-      h += '<tr data-i="' + r.index + '" class="' + (disc ? 'disc' : '') + '">' +
-        '<td class="sticky-l code">' + esc(it.erp) + (it.semi && it.semi !== '-' && it.semi !== it.erp ? '<span class="sub">' + esc(it.semi) + '</span>' : '') + '</td>' +
-        '<td class="sticky-l2 name"><button type="button" class="link" data-detail="' + r.index + '">' + esc(it.name) + '</button></td>' +
+      var cv = cover(r.stock, avgDemand(r));
+      h += '<tr data-i="' + r.index + '" class="' + (disc ? 'disc' : '') + (r.index === selected ? ' sel' : '') + '">' +
+        '<td class="sticky-l code">' + esc(it.erp) + '</td>' +
+        '<td class="sticky-l2 name" title="' + esc(it.name) + '">' + esc(it.name) + '</td>' +
         numCell(r.stock, r.stockOverridden ? '수기 입력값 (조회값 ' + n0(r.stockLookup) + ')' : '') +
         numCell(r.transit, r.transitOverridden ? '수기 입력값 (조회값 ' + n0(r.transitLookup) + ')' : '') +
         numCell(r.available) + numCell(r.demandTotal) +
         '<td class="num edit"><input type="number" min="0" data-field="lt" value="' + esc(it.lt) + '" aria-label="LT"' + dis() + ' /></td>' +
+        '<td class="num ' + (r.stock <= 0 ? 'neg' : cv !== null && cv < 1 ? 'warn-t' : '') + '">' + coverLabel(cv, r.stock) + '</td>' +
         r.inbound.map(function (v) { return numCell(v, '', v ? 'in' : 'zero'); }).join('') +
         r.demand.map(function (v) { return numCell(v, '', v ? '' : 'zero'); }).join('') +
         r.balance.map(function (v) { return '<td class="num bal ' + (v <= 0 ? 'bal-neg' : '') + '">' + signed(v) + '</td>'; }).join('') +
         numCell(r.safety, '', r.safety ? '' : 'zero') +
-        '<td class="ctr">' + (r.stockoutMonth ? '<b>' + r.stockoutMonth + '월</b>' : '<span class="muted">—</span>') + '</td>' +
-        '<td class="ctr">' + (r.review ? '<span class="chip st-warning"><span aria-hidden="true">▲</span>' + esc(r.review) + '</span>' : '') + '</td>' +
-        '<td class="ctr">' + (r.deadline ? '<span class="chip ' + (r.deadline === '즉시 발주' ? 'st-critical' : 'st-neutral') + '">' +
-          (r.deadline === '즉시 발주' ? '<span aria-hidden="true">!</span>' : '') + esc(r.deadline) + '</span>' : '') + '</td>' +
+        '<td class="ctr">' + (r.stockoutMonth ? r.stockoutMonth + '월' : '<span class="muted">—</span>') + '</td>' +
+        '<td class="ctr">' + (r.review ? '<span class="chip st-warning">' + esc(r.review) + '</span>' : '') + '</td>' +
+        '<td class="ctr">' + (r.deadline ? '<span class="chip ' + (r.deadline === '즉시 발주' ? 'st-critical' : 'st-neutral') + '">' + esc(r.deadline) + '</span>' : '') + '</td>' +
         numCell(r.recommended) +
         '<td class="num edit"><input type="text" inputmode="numeric" data-field="adjust" value="' + esc(it.adjust) + '" aria-label="발주 조정"' + dis() + ' /></td>' +
         '<td class="edit note"><input type="text" data-field="note" value="' + esc(it.note) + '" aria-label="비고"' + dis() + ' /></td>' +
         '</tr>';
     });
-    if (!rows.length) h += '<tr><td colspan="' + (12 + mN * 3 + 2) + '" class="muted pad">조건에 맞는 품목이 없습니다.</td></tr>';
+    if (!rows.length) h += '<tr><td colspan="' + (15 + mN * 3) + '" class="muted pad">조건에 맞는 품목이 없습니다.</td></tr>';
     h += '</tbody></table>';
     return h;
   }
@@ -289,8 +420,8 @@
     var wrap = document.getElementById('masterWrap');
     if (!wrap) return;
     var mN = months.length;
-    var starts = [2, 7, 7 + mN, 7 + 2 * mN, 7 + 3 * mN, 8 + 3 * mN, 13 + 3 * mN];
-    var bands = {}; // 그룹별 번갈아 배경
+    var starts = [2, 8, 8 + mN, 8 + 2 * mN, 8 + 3 * mN, 9 + 3 * mN, 14 + 3 * mN];
+    var bands = {};
     starts.forEach(function (st, k) {
       var end = k + 1 < starts.length ? starts[k + 1] : st + 1;
       for (var c = st; c < end; c++) bands[c] = k % 2 ? 'band-b' : 'band-a';
@@ -299,8 +430,8 @@
       if (i > 0) th.classList.add('gs', i % 2 ? 'band-a' : 'band-b');
     });
     wrap.querySelectorAll('thead tr:not(.grp), tbody tr').forEach(function (tr) {
+      if (tr.children.length < 3) return;
       Array.prototype.forEach.call(tr.children, function (cell, c) {
-        if (tr.children.length < 3) return;
         if (starts.indexOf(c) >= 0) cell.classList.add('gs');
         if (bands[c]) cell.classList.add(bands[c]);
       });
@@ -335,7 +466,7 @@
       else if (t.dataset.field === 'adjust') it.adjust = Grid.parseInput(t.value, { type: 'number' }) ?? '';
       else it[t.dataset.field] = t.value;
       persist();
-      var y = window.scrollY, wrap = document.getElementById('masterWrap'), sx = wrap.scrollLeft;
+      var y = window.scrollY, sx = document.getElementById('masterWrap').scrollLeft;
       render();
       window.scrollTo(0, y);
       document.getElementById('masterWrap').scrollLeft = sx;
@@ -344,71 +475,14 @@
   view.addEventListener('click', function (e) {
     var s = e.target.closest('[data-status]');
     if (s) { prefs.status = s.dataset.status; savePrefs(); render(); return; }
-    var d = e.target.closest('[data-detail]');
-    if (d) { openDetail(Number(d.dataset.detail)); return; }
+    var sel = e.target.closest('[data-select]');
+    if (sel) { selectItem(Number(sel.dataset.select), false); return; }
+    var row = e.target.closest('#masterWrap tbody tr[data-i]');
+    if (row && !e.target.closest('input')) { selectItem(Number(row.dataset.i), true); return; }
     if (e.target.closest('[data-open-import]')) { openImport(); return; }
     var act = e.target.closest('[data-act]');
     if (act) sheetAction(act.dataset.act);
   });
-
-  // ── 상세 패널 ───────────────────────────────────────
-  function openDetail(i) {
-    var r = results[i];
-    if (!r) return;
-    var it = r.item, months = r.months;
-    document.getElementById('drawerCode').textContent = it.erp + (it.semi && it.semi !== '-' ? ' · 반제품 ' + it.semi : '') + (it.note ? ' · ' + it.note : '');
-    document.getElementById('drawerTitle').textContent = it.name;
-    var st = STATUS[r.status];
-    var h = '<div class="d-status"><span class="chip ' + st.cls + '"><span aria-hidden="true">' + st.icon + '</span>' + esc(r.deadline || st.label) + '</span>' +
-      (r.stockoutMonth ? '<span>품절 예상 <b>' + r.stockoutMonth + '월</b> · 권장발주량 <b>' + n0(r.recommended) + '</b>' +
-        (r.deadlineDate && r.deadline !== '즉시 발주' ? ' · 발주 기한 ' + r.deadlineDate.toISOString().slice(0, 10) : '') + '</span>' : '<span class="muted">검토 기간 내 품절 예상 없음</span>') + '</div>';
-    h += '<div class="d-kpis">' +
-      mini('현재고', r.stock, r.stockOverridden ? '수기값' : '') + mini('미입고', r.transit, r.transitOverridden ? '수기값' : '') +
-      mini('가용재고', r.available) + mini('S&OP 합계', r.demandTotal) + mini('LT', r.lt, '일') + mini('안전재고', r.safety) + '</div>';
-
-    if (r.stockOverridden || r.transitOverridden) {
-      h += '<p class="note-box">이 품목은 엑셀에서 현재고/미입고가 수식 대신 값으로 입력되어 있어 수기값을 사용합니다' +
-        ' (조회값: 현재고 ' + n0(r.stockLookup) + ', 미입고 ' + n0(r.transitLookup) + '). <b>품목 설정</b> 탭에서 수기값을 비우면 자동 계산으로 바뀝니다.</p>';
-    }
-    if (r.overdue.length) {
-      h += '<p class="note-box warn"><span aria-hidden="true">▲ </span>납기일이 검토 기간(' + months[0] + '월) 이전인데 잔량이 남은 발주 ' + r.overdue.length +
-        '건(' + n0(r.overdue.reduce(function (s, x) { return s + E.num(x[14]); }, 0)) + ' EA)은 월별 입고예정에 포함되지 않습니다.</p>';
-    }
-
-    h += '<h3>월별 입고예정 vs S&amp;OP</h3>' + groupedBars(months, r.inbound, r.demand);
-    h += '<h3>월말 잔여 재고</h3>' + balanceBars(months, r.balance);
-
-    h += '<h3>미입고 발주 (' + r.poLines.length + '건)</h3>';
-    h += r.poLines.length ? miniTable(['발주번호', '거래처', '품번', '발주수량', '잔량', '납기일자', '담당자'],
-      r.poLines.map(function (p) { return [p[2], p[5], p[7], { n: p[13] }, { n: p[14] }, p[17], p[18]]; })) : '<p class="muted">없음</p>';
-
-    var rawRows = [];
-    var stockCodes = r.stockRows.map(function (s) { return E.str(s[0]); });
-    state.sheets.raw.rows.forEach(function (x) { if (stockCodes.indexOf(E.str(x[0])) >= 0) rawRows.push(x); });
-    h += '<h3>재고 구성 (재고 현황 ' + r.stockRows.length + '행 · RAW ' + rawRows.length + '행)</h3>';
-    h += r.stockRows.length ? miniTable(['ERP코드', '상품명', '가용재고'], r.stockRows.map(function (s) { return [s[0], s[2], { n: s[4] }]; })) : '<p class="muted">재고 현황에 연결된 행이 없습니다 (ERP 코드 조정 = ' + esc(it.erp) + ').</p>';
-    if (rawRows.length) {
-      h += miniTable(['ERP코드', '물류센터', '창고', '유통기한', '가용재고'], rawRows.map(function (x) { return [x[0], x[4], x[5], x[6], { n: x[7] }]; }));
-    }
-
-    if (r.salesRows.length) {
-      var sh = state.sheets.sales.headers, mcols = [];
-      sh.forEach(function (hd, k) { if (/^\d{1,2}월$/.test(E.str(hd))) mcols.push(k); });
-      h += '<h3>판매 실적</h3>' + miniTable(['ERP코드'].concat(mcols.map(function (k) { return sh[k]; })),
-        r.salesRows.map(function (s) { return [s[0]].concat(mcols.map(function (k) { return { n: s[k] }; })); }));
-    }
-
-    document.getElementById('drawerBody').innerHTML = h;
-    var dr = document.getElementById('drawer');
-    dr.classList.add('open');
-    dr.setAttribute('aria-hidden', 'false');
-    dr.querySelector('.btn[data-close]').focus();
-  }
-
-  function mini(label, v, unit) {
-    return '<div class="mini"><span>' + esc(label) + '</span><b class="' + (v < 0 ? 'neg' : '') + '">' + signed(v) +
-      (unit ? '<small>' + esc(unit) + '</small>' : '') + '</b></div>';
-  }
 
   function miniTable(head, rows) {
     return '<div class="table-wrap"><table class="mini-table"><thead><tr>' + head.map(function (x) { return '<th>' + esc(x) + '</th>'; }).join('') +
@@ -454,41 +528,20 @@
     }).join('');
   }
 
-  function groupedBars(months, a, b) {
-    var W = 560, H = 210, padL = 48, padR = 8, padT = 12, padB = 26;
-    var max = niceMax(Math.max.apply(null, a.concat(b)));
-    var sy = function (v) { return padT + (H - padT - padB) * (1 - v / max); };
-    var ticks = [0, max / 2, max];
-    var band = (W - padL - padR) / months.length, bw = Math.min(28, band / 3.2), gap = 2;
-    var s = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="월별 입고예정과 S&OP 수요 비교">' + axis(W, padL, padR, ticks, sy);
-    months.forEach(function (m, i) {
-      var cx = padL + band * i + band / 2;
-      var x1 = cx - bw - gap / 2, x2 = cx + gap / 2;
-      s += '<path class="bar s1" d="' + barPath(x1, sy(0), bw, sy(a[i]), 4) + '"/>';
-      s += '<path class="bar s2" d="' + barPath(x2, sy(0), bw, sy(b[i]), 4) + '"/>';
-      s += '<rect class="hit" x="' + (cx - band / 2) + '" y="' + padT + '" width="' + band + '" height="' + (H - padT - padB) + '" data-tip="' +
-        esc(m + '월|입고예정|' + n0(a[i]) + '|S&OP|' + n0(b[i])) + '"/>';
-      s += '<text class="tick" x="' + cx + '" y="' + (H - 8) + '" text-anchor="middle">' + m + '월</text>';
-    });
-    s += '<line class="baseline" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + sy(0) + '" y2="' + sy(0) + '"/></svg>';
-    var legend = '<div class="legend"><span><i class="sw s1"></i>입고예정</span><span><i class="sw s2"></i>S&amp;OP 수요</span></div>';
-    return legend + s;
-  }
-
   function balanceBars(months, bal) {
-    var W = 560, H = 210, padL = 48, padR = 8, padT = 18, padB = 34;
+    var W = 520, H = 180, padL = 44, padR = 8, padT = 16, padB = 28;
     var hi = Math.max(0, Math.max.apply(null, bal)), lo = Math.min(0, Math.min.apply(null, bal));
     var span = niceMax(Math.max(hi - lo, 1));
     var top = hi > 0 ? niceMax(hi) : 0, bottom = lo < 0 ? -niceMax(-lo) : 0;
     if (top === 0 && bottom === 0) top = span;
     var sy = function (v) { return padT + (H - padT - padB) * (top - v) / (top - bottom); };
     var ticks = [bottom, 0, top].filter(function (v, k, arr) { return arr.indexOf(v) === k; });
-    var band = (W - padL - padR) / months.length, bw = Math.min(40, band / 2.2);
+    var band = (W - padL - padR) / months.length, bw = Math.min(36, band / 2.4);
     var s = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="월말 잔여 재고">' + axis(W, padL, padR, ticks, sy);
     months.forEach(function (m, i) {
       var cx = padL + band * i + band / 2, v = bal[i];
-      s += '<path class="bar ' + (v <= 0 ? 'bneg' : 's1') + '" d="' + barPath(cx - bw / 2, sy(0), bw, sy(v), 4) + '"/>';
-      var ly = v >= 0 ? sy(v) - 5 : sy(v) + 13;
+      s += '<path class="bar ' + (v <= 0 ? 'bneg' : 's1') + '" d="' + barPath(cx - bw / 2, sy(0), bw, sy(v), 3) + '"/>';
+      var ly = v >= 0 ? sy(v) - 5 : sy(v) + 12;
       s += '<text class="val' + (v <= 0 ? ' val-neg' : '') + '" x="' + cx + '" y="' + ly + '" text-anchor="middle">' + signed(v) + '</text>';
       s += '<rect class="hit" x="' + (cx - band / 2) + '" y="' + padT + '" width="' + band + '" height="' + (H - padT - padB) + '" data-tip="' +
         esc(m + '월|월말 잔여|' + signed(v)) + '"/>';
@@ -511,18 +564,6 @@
     var x = Math.min(e.clientX + 14, window.innerWidth - tip.offsetWidth - 8);
     tip.style.left = x + 'px';
     tip.style.top = (e.clientY + 14) + 'px';
-  });
-
-  function closeDrawer() {
-    var dr = document.getElementById('drawer');
-    dr.classList.remove('open');
-    dr.setAttribute('aria-hidden', 'true');
-  }
-  document.getElementById('drawer').addEventListener('click', function (e) {
-    if (e.target.closest('[data-close]')) closeDrawer();
-  });
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && document.getElementById('drawer').classList.contains('open')) closeDrawer();
   });
 
   // ── 품목 설정 ───────────────────────────────────────
