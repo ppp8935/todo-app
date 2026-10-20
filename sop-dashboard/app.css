@@ -186,9 +186,10 @@ input, select, textarea, button { font: inherit; color: inherit; }
 
 /* ── 범위 표시 · KPI ───────────────────────────────── */
 .scopebar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.scope-label { color: var(--muted); }
 .scope-chip { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 2px 8px; color: var(--ink-2); }
 .check { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; margin-left: 6px; }
-.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
 .kpi {
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
   padding: 9px 12px; display: flex; flex-direction: column; gap: 1px; min-width: 0;
@@ -222,12 +223,23 @@ input, select, textarea, button { font: inherit; color: inherit; }
 .chip.st-neutral { background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--line); line-height: 16px; }
 
 /* ── A: 발주 필요 품목 + B: 수급 계획표 ─────────────── */
-.work { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 10px; align-items: start; }
+/* 발주 필요 품목 (드롭다운) */
+.exc > summary { cursor: pointer; list-style: none; border-bottom: 0; align-items: center; }
+.exc > summary::-webkit-details-marker { display: none; }
+.exc > summary h2::before { content: "▸"; display: inline-block; width: 14px; color: var(--muted); }
+.exc[open] > summary h2::before { content: "▾"; }
+.exc[open] > summary { border-bottom: 1px solid var(--line); }
+.exc > summary:hover { background: var(--surface-2); }
+.count { display: inline-block; min-width: 20px; padding: 0 6px; margin-left: 4px; border-radius: 10px; background: var(--critical-bg); color: var(--critical-ink); font-size: var(--fs-s); text-align: center; }
 .exc-head, .exc-row {
-  display: grid; grid-template-columns: 3px minmax(0, 1fr) 76px 72px 62px; gap: 10px; align-items: center;
+  display: grid; grid-template-columns: 3px 72px minmax(0, 1fr) 150px 80px 84px; gap: 0 12px; align-items: center;
 }
+.exc-head span + span, .exc-row > span + span { border-left: 1px solid var(--line); padding-left: 12px; margin-left: -12px; }
+.exc-head span.num, .exc-row > span.num { padding-left: 0; }
+.exc-row .code { font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.exc-detail { padding: 10px 12px 12px 15px; background: var(--page); border-bottom: 1px solid var(--line); }
 .exc-head { padding: 5px 12px 5px 0; background: var(--surface-2); color: var(--muted); font-size: var(--fs-s); border-bottom: 1px solid var(--line); }
-.exc-list { list-style: none; margin: 0; padding: 0; max-height: 520px; overflow-y: auto; }
+.exc-list { list-style: none; margin: 0; padding: 0; }
 .exc-row {
   width: 100%; padding: 6px 12px 6px 0; border: 0; border-bottom: 1px solid var(--line);
   background: var(--surface); text-align: left; cursor: pointer;
@@ -239,15 +251,20 @@ input, select, textarea, button { font: inherit; color: inherit; }
 .exc-row.st-warning i { background: var(--warning); }
 .exc-row.st-neutral i { background: var(--line-strong); }
 .exc-row .nm { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.exc-row .nm em { font-style: normal; color: var(--muted); font-size: var(--fs-s); margin-left: 6px; }
-.exc-row .chip { justify-self: start; }
+
 .exc-row .num.neg { font-weight: 700; }
 
-.plan-head { align-items: flex-start; }
-.plan-head h2 { font-size: var(--fs-h); }
-.plan-head p { margin: 2px 0 0; font-size: var(--fs-s); }
-.plan-status { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; color: var(--ink-2); }
+/* 수급 계획표: 품목을 누르면 바로 아래에 펼쳐짐 */
+.plan { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 10px; align-items: start; white-space: normal; }
+.plan-main, .plan-side { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; min-width: 0; }
+.plan-bar { display: flex; gap: 6px 14px; align-items: center; flex-wrap: wrap; padding: 7px 12px; border-bottom: 1px solid var(--line); color: var(--ink-2); }
+.plan-bar b { color: var(--ink); }
+.master > tbody > tr.detail-row > td { padding: 0; background: var(--page); box-shadow: none; border-bottom: 2px solid var(--line-strong); cursor: default; }
+.detail-inner { position: sticky; left: 0; width: var(--dw, 100%); padding: 10px 12px 12px; }
+.caret { display: inline-block; width: 12px; color: var(--muted); }
 .plan-table { width: 100%; border-collapse: collapse; }
+.plan-table.single { width: auto; }
+.plan-table.single td { min-width: 140px; }
 .plan-table th, .plan-table td { padding: 5px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .plan-table thead th { background: var(--surface-2); color: var(--muted); font-weight: 700; font-size: var(--fs-s); text-align: right; }
 .plan-table thead th:first-child { text-align: left; }
@@ -267,7 +284,7 @@ input, select, textarea, button { font: inherit; color: inherit; }
 .lg.h-crit { outline: 1px solid var(--critical); }
 .lg.h-warn { outline: 1px solid var(--warning); }
 .lg.h-good { outline: 1px solid var(--good); }
-.plan-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.plan-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid var(--line); }
 .plan-facts div { padding: 7px 12px; display: flex; flex-direction: column; }
 .plan-facts div + div { border-left: 1px solid var(--line); }
 .plan-facts span { color: var(--muted); font-size: var(--fs-s); }
@@ -275,8 +292,8 @@ input, select, textarea, button { font: inherit; color: inherit; }
 .plan-facts b { font-size: 13px; text-align: left; }
 .note-box { margin: 8px 12px 0; padding: 7px 10px; border-radius: 4px; background: var(--surface-2); color: var(--ink-2); font-size: var(--fs-s); }
 .note-box.warn { background: var(--warning-bg); color: var(--warning-ink); }
-.more { border-top: 1px solid var(--line); }
-.plan .more:first-of-type { margin-top: 8px; }
+.more + .more, .note-box + .more { border-top: 1px solid var(--line); }
+.note-box + .more { margin-top: 8px; }
 .more summary { padding: 7px 12px; cursor: pointer; color: var(--ink-2); font-weight: 700; }
 .more summary:hover { background: var(--surface-2); }
 .more[open] summary { border-bottom: 1px solid var(--line); }
@@ -301,46 +318,46 @@ input, select, textarea, button { font: inherit; color: inherit; }
 table { border-collapse: separate; border-spacing: 0; }
 th, td { white-space: nowrap; }
 .master { width: 100%; }
-.master th {
+.master > thead > tr > th {
   position: sticky; top: 0; z-index: 2; background: var(--surface-2); color: var(--ink-2);
   font-weight: 700; padding: 5px 10px; border-bottom: 1px solid var(--line); text-align: center;
 }
-.master tr.grp th { font-size: var(--fs-s); color: var(--muted); }
-.master thead tr:nth-child(2) th { top: 25px; }
-.master th.num { text-align: right; }
-.master td { padding: 4px 10px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.master > thead > tr.grp > th { font-size: var(--fs-s); color: var(--muted); }
+.master > thead > tr:nth-child(2) > th { top: 25px; }
+.master > thead > tr > th.num { text-align: right; }
+.master > tbody > tr > td { padding: 4px 10px; border-bottom: 1px solid var(--line); background: var(--surface); }
 /* 열 구분: 칸마다 옅은 세로선, 그룹 경계는 진한 선, 그룹마다 번갈아 배경 */
-.master th + th, .master td + td { box-shadow: inset 1px 0 0 var(--line); }
+.master > thead > tr > th + th, .master > tbody > tr > td + td { box-shadow: inset 1px 0 0 var(--line); }
 .master .gs { box-shadow: inset 2px 0 0 var(--line-strong) !important; }
-.master td.band-b { background: var(--band); }
-.master thead th.band-b { background: var(--surface-2); }
-.master thead th.band-a { background: var(--surface); }
-.master tbody tr { cursor: pointer; }
-.master tbody tr:hover td { background: var(--surface-2); }
-.master tbody tr.sel td { background: var(--sel); }
-.master tr.disc td { color: var(--muted); }
-.master td.zero { color: var(--muted); }
-.master td.in { color: var(--accent); font-weight: 700; }
-.master td.warn-t { color: var(--warning-ink); font-weight: 700; }
-.master td.bal-neg, .master tbody tr:hover td.bal-neg { background: var(--neg-bg); color: var(--critical-ink); font-weight: 700; }
-.master td.overridden { text-decoration: underline dotted var(--muted); text-underline-offset: 3px; cursor: help; }
+.master > tbody > tr > td.band-b { background: var(--band); }
+.master > thead > tr > th.band-b { background: var(--surface-2); }
+.master > thead > tr > th.band-a { background: var(--surface); }
+.master > tbody > tr[data-i] { cursor: pointer; }
+.master > tbody > tr[data-i]:hover > td { background: var(--surface-2); }
+.master > tbody > tr.sel > td { background: var(--sel); }
+.master > tbody > tr.disc > td { color: var(--muted); }
+.master > tbody > tr > td.zero { color: var(--muted); }
+.master > tbody > tr > td.in { color: var(--accent); font-weight: 700; }
+.master > tbody > tr > td.warn-t { color: var(--warning-ink); font-weight: 700; }
+.master > tbody > tr > td.bal-neg, .master > tbody > tr:hover > td.bal-neg { background: var(--neg-bg); color: var(--critical-ink); font-weight: 700; }
+.master > tbody > tr > td.overridden { text-decoration: underline dotted var(--muted); text-underline-offset: 3px; cursor: help; }
 .master .sticky-l, .master .sticky-l2 { position: sticky; z-index: 1; }
 .master .sticky-l { left: 0; min-width: 70px; }
 .master .sticky-l2 { left: 70px; box-shadow: inset -1px 0 0 var(--line-strong) !important; }
-.master th.sticky-l, .master th.sticky-l2 { z-index: 3; }
-.master td.name { max-width: 280px; min-width: 200px; overflow: hidden; text-overflow: ellipsis; text-align: left; }
-.master td.edit { padding: 2px 3px; }
-.master td.edit input {
+.master > thead > tr > th.sticky-l, .master > thead > tr > th.sticky-l2 { z-index: 3; }
+.master > tbody > tr > td.name { max-width: 280px; min-width: 200px; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+.master > tbody > tr > td.edit { padding: 2px 3px; }
+.master > tbody > tr > td.edit input {
   width: 100%; min-width: 56px; height: 22px; padding: 0 6px; border: 1px solid transparent; border-radius: 3px;
   background: transparent; text-align: inherit; font-variant-numeric: tabular-nums;
 }
-.master td.edit input:hover { border-color: var(--line-strong); background: var(--surface); }
-.master td.edit input:focus { border-color: var(--accent); background: var(--surface); outline: none; }
-.master td.edit input:disabled { color: inherit; opacity: 1; }
-.master td.edit input:disabled:hover { border-color: transparent; background: transparent; }
-.master td.note input { min-width: 80px; text-align: left; }
-.master td.num.edit input { text-align: right; }
-.master td.edit input[type=number] { width: 56px; }
+.master > tbody > tr > td.edit input:hover { border-color: var(--line-strong); background: var(--surface); }
+.master > tbody > tr > td.edit input:focus { border-color: var(--accent); background: var(--surface); outline: none; }
+.master > tbody > tr > td.edit input:disabled { color: inherit; opacity: 1; }
+.master > tbody > tr > td.edit input:disabled:hover { border-color: transparent; background: transparent; }
+.master > tbody > tr > td.note input { min-width: 80px; text-align: left; }
+.master > tbody > tr > td.num.edit input { text-align: right; }
+.master > tbody > tr > td.edit input[type=number] { width: 56px; }
 
 /* ── 시트 편집 ───────────────────────────────────────── */
 .panel.sheet .panel-head { border-bottom: 0; }
@@ -439,7 +456,8 @@ textarea {
 
 /* ── 반응형 ─────────────────────────────────────────── */
 @media (max-width: 1100px) {
-  .work { grid-template-columns: minmax(0, 1fr); }
+  .plan { grid-template-columns: minmax(0, 1fr); }
+  .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 720px) {
   .topbar { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
@@ -447,8 +465,9 @@ textarea {
   .top-actions .btn { flex: 1; justify-content: center; }
   .save-state { order: 9; width: 100%; }
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .exc-head, .exc-row { grid-template-columns: 3px minmax(0, 1fr) 70px 64px; }
-  .exc-head span:last-child, .exc-row > span:last-child { display: none; }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .exc-head, .exc-row { grid-template-columns: 3px 64px minmax(0, 1fr) 72px; }
+  .exc-head span:nth-child(4), .exc-row > span:nth-child(4), .exc-head span:last-child, .exc-row > span:last-child { display: none; }
   .plan-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .plan-facts div:nth-child(3) { border-left: 0; }
   .filters input[type="search"], .toolbar input[type="search"] { min-width: 0; flex: 1 1 100%; }
