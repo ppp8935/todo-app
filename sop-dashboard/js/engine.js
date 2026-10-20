@@ -128,11 +128,15 @@
     return idx;
   }
 
+  // ERP코드가 없거나 '-'(아직 코드 생성 전)인 품목
+  function hasCode(code) { var c = str(code); return c !== '' && c !== '-'; }
+
   function codesFor(item) {
-    var codes = [str(item.erp)];
-    var semi = str(item.semi);
-    // 엑셀은 ERP코드·반제품코드 두 번 SUMIFS 합니다. 두 코드가 같으면 중복 합산을 막습니다.
-    if (semi && semi !== '-' && semi !== codes[0]) codes.push(semi);
+    var codes = hasCode(item.erp) ? [str(item.erp)] : [];
+    // 엑셀은 ERP코드·반제품코드 두 번 SUMIFS 합니다. 같은 코드는 한 번만 더합니다.
+    str(item.semi).split(/[,\s]+/).forEach(function (c) {
+      if (hasCode(c) && codes.indexOf(c) < 0) codes.push(c);
+    });
     return codes;
   }
 
@@ -162,7 +166,8 @@
       var r = { item: item, index: i, months: months };
 
       // E 현재고
-      var stockRows = stockIdx[str(item.erp)] || [];
+      var coded = hasCode(item.erp);
+      var stockRows = coded ? (stockIdx[str(item.erp)] || []) : [];
       r.stockLookup = stockRows.reduce(function (s, row) { return s + num(row[4]); }, 0);
       r.stockOverridden = item.stockOverride !== null && item.stockOverride !== undefined && item.stockOverride !== '';
       r.stock = r.stockOverridden ? num(item.stockOverride) : r.stockLookup;
@@ -188,7 +193,7 @@
       r.available = r.stock + r.transit;
 
       // N~Q 월별 S&OP
-      var sopRows = item.sopMatch === 'name' ? (sopByName[str(item.name)] || []) : (sopByCode[str(item.erp)] || []);
+      var sopRows = item.sopMatch === 'name' ? (sopByName[str(item.name)] || []) : coded ? (sopByCode[str(item.erp)] || []) : [];
       r.sopRows = sopRows;
       r.demand = months.map(function (m) {
         var c = lay.monthCols[m];
@@ -201,7 +206,7 @@
       r.balance = months.map(function (m, k) { bal = bal + r.inbound[k] - r.demand[k]; return bal; });
 
       // V 안전재고 (일평균 판매 × LT)
-      var salesRows = salesIdx[str(item.erp)] || [];
+      var salesRows = coded ? (salesIdx[str(item.erp)] || []) : [];
       r.salesRows = salesRows;
       var salesSum = 0;
       avgCols.forEach(function (c) { salesRows.forEach(function (row) { salesSum += num(row[c]); }); });
@@ -209,9 +214,11 @@
       r.lt = num(item.lt);
       r.safety = Math.round(r.dailyAvg * r.lt);
 
-      // W 품절 예상월
+      // W 품절 예상월 — 검토 기간에 S&OP 수요가 전혀 없는 품목은 발주 대상이 아니므로 제외
       r.stockoutIndex = -1;
-      for (var k = 0; k < r.balance.length; k++) { if (r.balance[k] <= 0) { r.stockoutIndex = k; break; } }
+      if (r.demandTotal > 0) {
+        for (var k = 0; k < r.balance.length; k++) { if (r.balance[k] <= 0) { r.stockoutIndex = k; break; } }
+      }
       r.stockoutMonth = r.stockoutIndex >= 0 ? months[r.stockoutIndex] : null;
 
       // X 발주 여부 · Y 발주 기한 · Z 권장발주량
@@ -231,6 +238,8 @@
         r.recommended = Math.max(settings.moq, Math.ceil(shortage / settings.roundUnit) * settings.roundUnit);
       }
       r.status = r.deadline === '즉시 발주' ? 'urgent' : r.review ? 'review' : r.stockoutMonth ? 'watch' : 'ok';
+      r.price = num(item.price);
+      r.stockValue = r.price * r.stock; // 재고금액 = 상품단가 × 현재고
       return r;
     });
   }
@@ -254,6 +263,7 @@
     windowMonths: windowMonths,
     sopLayout: sopLayout,
     computeMaster: computeMaster,
+    hasCode: hasCode,
     emptyState: emptyState
   };
 

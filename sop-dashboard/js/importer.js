@@ -25,7 +25,8 @@
   }
 
   function readWorkbook(data) {
-    return getXLSX().read(data, { type: 'array', cellDates: true, cellFormula: true });
+    // cellStyles: 채우기 색, bookFiles: 글자색을 읽기 위한 원본 XML
+    return getXLSX().read(data, { type: 'array', cellDates: true, cellFormula: true, cellStyles: true, bookFiles: true });
   }
 
   function norm(h) { return String(h === null || h === undefined ? '' : h).replace(/\s+/g, '').toLowerCase(); }
@@ -42,7 +43,9 @@
     { key: 'semi', test: function (h) { return has(h, ['모품번']) && has(h, ['자품번']); } },
     { key: 'raw', test: function (h) { return has(h, ['물류센터', '센터', '창고', '창고명']) && has(h, ['가용재고', '가용수량', '재고수량']) && has(h, ['상품명', '품명']); } },
     { key: 'sales', test: function (h) { return has(h, ['ERP 코드 조정']) && has(h, ['상품코드']) && monthCount(h) >= 1; } },
-    { key: 'stock', test: function (h) { return has(h, ['ERP 코드 조정']) && has(h, ['가용재고']); } }
+    { key: 'stock', test: function (h) { return has(h, ['ERP 코드 조정']) && has(h, ['가용재고']); } },
+    // 품목 목록(업데이트용): ERP + 상품명 위주의 짧은 표
+    { key: 'itemlist', test: function (h) { return has(h, ['ERP', 'ERP코드']) && has(h, ['상품명']) && !has(h, ['현재고', '가용재고']) && h.length <= 10; } }
   ];
 
   function classify(ws) {
@@ -50,7 +53,7 @@
     var aoa = X.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null, blankrows: true });
     for (var r = 0; r < Math.min(10, aoa.length); r++) {
       var h = (aoa[r] || []).map(norm).filter(Boolean);
-      if (h.length < 3) continue;
+      if (h.length < 2) continue;
       for (var k = 0; k < SIGNATURES.length; k++) {
         if (SIGNATURES[k].test(h)) return { key: SIGNATURES[k].key, hr: r };
       }
@@ -191,9 +194,104 @@
     return items;
   }
 
+  // ── 품목 목록(업데이트용) ─────────────────────────────
+  var BRANDS = ['플라이밀', '라이블링', '리덴스'];
+  function inferGroup(erp, name) {
+    for (var i = 0; i < BRANDS.length; i++) if (String(name || '').indexOf(BRANDS[i]) >= 0) return BRANDS[i];
+    var p = { FL: '플라이밀', LV: '라이블링', RD: '리덴스' }[String(erp || '').slice(0, 2)];
+    return p || '기타';
+  }
+
+  function fileText(wb, path) {
+    var f = wb.files && (wb.files[path] || wb.files['/' + path]);
+    if (!f || !f.content) return '';
+    return typeof f.content === 'string' ? f.content : new TextDecoder('utf-8').decode(f.content);
+  }
+
+  // 빨간 글씨가 있는 행 번호(1부터) — SheetJS가 글자색을 주지 않아 원본 XML을 직접 읽음
+  function redRows(wb, sheetName) {
+    var out = {};
+    try {
+      var idx = wb.SheetNames.indexOf(sheetName);
+      var path = wb.Directory && wb.Directory.sheets && wb.Directory.sheets[idx];
+      var sheetXml = fileText(wb, String(path || '').replace(/^\//, ''));
+      var styles = fileText(wb, 'xl/styles.xml');
+      if (!sheetXml || !styles) return out;
+      var fonts = ((styles.match(/<fonts[^>]*>([\s\S]*?)<\/fonts>/) || [])[1] || '').match(/<font\b[\s\S]*?<\/font>|<font\b[^>]*\/>/g) || [];
+      var redFont = fonts.map(function (f) { return /<color[^>]*rgb="(FF)?FF0000"/i.test(f); });
+      var xfs = ((styles.match(/<cellXfs[^>]*>([\s\S]*?)<\/cellXfs>/) || [])[1] || '').match(/<xf\b[^>]*>/g) || [];
+      var redXf = xfs.map(function (x) { var m = x.match(/fontId="(\d+)"/); return m ? !!redFont[Number(m[1])] : false; });
+      var re = /<c r="[A-Z]+(\d+)"[^>]*?\bs="(\d+)"/g, m;
+      while ((m = re.exec(sheetXml))) if (redXf[Number(m[2])]) out[Number(m[1])] = true;
+    } catch (e) { /* 색을 못 읽으면 비고 열 기준으로만 판단 */ }
+    return out;
+  }
+
+  // 반환: [{ erp, name, group, semi, lt, price, note }] — 비어 있는 값은 null
+  function parseItemList(wb, entry) {
+    var X = getXLSX();
+    var ws = wb.Sheets[entry.sheet];
+    var range = X.utils.decode_range(ws['!ref']);
+    var aoa = X.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null, blankrows: true });
+    var heads = (aoa[entry.hr] || []).map(norm);
+    function col(names) {
+      for (var i = 0; i < names.length; i++) { var j = heads.indexOf(norm(names[i])); if (j >= 0) return j; }
+      return -1;
+    }
+    var c = { erp: col(['ERP', 'ERP코드']), name: col(['상품명']), group: col(['품목군']), semi: col(['반제품코드']),
+      lt: col(['LT', 'LT(일)']), price: col(['상품단가', '단가']), note: col(['비고', '상태']) };
+    var red = redRows(wb, entry.sheet);
+    var out = [];
+    for (var r = entry.hr + 1; r < aoa.length; r++) {
+      var row = aoa[r] || [];
+      var name = row[c.name];
+      if (name === null || name === undefined || String(name).trim() === '') continue;
+      var excelRow = range.s.r + r + 1;
+      var filled = [c.erp, c.name].some(function (k) {
+        var cell = k >= 0 ? ws[X.utils.encode_cell({ r: range.s.r + r, c: range.s.c + k })] : null;
+        return cell && cell.s && cell.s.patternType && cell.s.patternType !== 'none';
+      });
+      var noteText = c.note >= 0 && row[c.note] !== null ? String(row[c.note]).trim() : '';
+      var status = /단종/.test(noteText) ? '단종' : /신제품/.test(noteText) ? '신제품' : red[excelRow] ? '단종' : filled ? '신제품' : '';
+      var erp = c.erp >= 0 && row[c.erp] !== null && String(row[c.erp]).trim() !== '' ? String(row[c.erp]).trim() : '-';
+      out.push({
+        erp: erp, name: String(name).trim(),
+        group: c.group >= 0 && row[c.group] ? String(row[c.group]).trim() : null,
+        semi: c.semi >= 0 && row[c.semi] ? String(row[c.semi]).trim() : null,
+        lt: c.lt >= 0 && row[c.lt] !== null && row[c.lt] !== '' ? E.num(row[c.lt]) : null,
+        price: c.price >= 0 && row[c.price] !== null && row[c.price] !== '' ? E.num(row[c.price]) : null,
+        note: status
+      });
+    }
+    return out;
+  }
+
+  // 품목 목록으로 품목 상세를 갱신: 파일 순서·이름·상태를 따르고, 웹에 있던 반제품코드·LT·단가 등은 유지
+  function mergeItemList(state, list) {
+    var byCode = {}, byName = {};
+    state.items.forEach(function (it) {
+      if (E.hasCode(it.erp)) byCode[E.str(it.erp)] = it;
+      byName[E.str(it.name)] = it;
+    });
+    state.items = list.map(function (x) {
+      var old = (E.hasCode(x.erp) ? byCode[x.erp] : null) || byName[x.name] || {};
+      var group = x.group || old.group || inferGroup(x.erp, x.name);
+      return {
+        erp: x.erp, name: x.name, group: group,
+        semi: x.semi || old.semi || '-',
+        lt: x.lt !== null ? x.lt : (old.lt || (group === '리덴스' ? 80 : 45)),
+        price: x.price !== null ? x.price : (old.price === undefined ? null : old.price),
+        sopMatch: old.sopMatch || 'code',
+        note: x.note,
+        note2: old.note2 || ''
+      };
+    });
+  }
+
   // 인식된 시트 하나를 상태에 반영
   function applyEntry(state, wb, entry) {
     var ws = wb.Sheets[entry.sheet];
+    if (entry.key === 'itemlist') { mergeItemList(state, parseItemList(wb, entry)); return; }
     if (entry.key === 'items') {
       var prev = {};
       state.items.forEach(function (it) { prev[it.erp] = it; });
@@ -270,6 +368,7 @@
     readWorkbook: readWorkbook,
     scanWorkbook: scanWorkbook,
     applyEntry: applyEntry,
+    inferGroup: inferGroup,
     parseSheet: parseSheet,
     parseMaster: parseMaster,
     detect: detect,
