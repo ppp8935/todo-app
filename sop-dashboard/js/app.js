@@ -162,7 +162,32 @@
     render();
   });
 
+  // 같은 화면을 다시 그릴 때는 표·페이지 스크롤 위치를 그대로 유지
+  var lastViewKey = null;
   function render() {
+    var viewKey = prefs.tab + ':' + curKey();
+    var keep = null;
+    if (viewKey === lastViewKey) {
+      keep = { y: window.scrollY, els: {} };
+      ['gridHost', 'masterWrap'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) keep.els[id] = [el.scrollTop, el.scrollLeft];
+      });
+    }
+    var lim = keep && currentGrid ? currentGrid.limit : null;
+    lastViewKey = viewKey;
+    renderView();
+    if (lim && currentGrid && currentGrid.limit < lim) { currentGrid.limit = lim; currentGrid.render(); }
+    if (keep) {
+      Object.keys(keep.els).forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) { el.scrollTop = keep.els[id][0]; el.scrollLeft = keep.els[id][1]; }
+      });
+      window.scrollTo(0, keep.y);
+    }
+  }
+
+  function renderView() {
     if (remoteWaiting && !(currentGrid && currentGrid.editing)) { var nx = remoteWaiting; remoteWaiting = null; state = nx; }
     document.body.classList.toggle('readonly', Store.readOnly);
     renderTabs();

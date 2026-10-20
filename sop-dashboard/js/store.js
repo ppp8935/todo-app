@@ -168,8 +168,17 @@
     return ops.reduce(function (p, op) {
       return p.then(function () {
         var ref = db.doc(op.path);
-        if (op.del) return ref.delete().then(function () { delete lastWritten[op.path]; });
-        return ref.set(op.body).then(function () { lastWritten[op.path] = op.json; });
+        // 저장이 끝나기 전에 내 변경이 스냅샷으로 먼저 돌아오므로, 쓰기 전에 기록해 두어야 '다른 사람 변경'으로 오인하지 않음
+        var prev = lastWritten[op.path];
+        if (op.del) {
+          delete lastWritten[op.path];
+          return ref.delete().catch(function (e) { if (prev !== undefined) lastWritten[op.path] = prev; throw e; });
+        }
+        lastWritten[op.path] = op.json;
+        return ref.set(op.body).catch(function (e) {
+          if (prev === undefined) delete lastWritten[op.path]; else lastWritten[op.path] = prev;
+          throw e;
+        });
       });
     }, Promise.resolve()).then(function () {
       // 다른 사용자 변경을 다시 조립할 때 쓰는 사본도 최신으로
