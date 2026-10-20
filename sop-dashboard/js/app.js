@@ -746,12 +746,13 @@
     });
     currentGrid = new Grid(document.getElementById('gridHost'), {
       columns: roCols(ITEM_COLS),
+      history: historyFor('items'),
       rows: function () { return state.items; },
       stickyCols: 2,
       rowClass: function (it) { return isDiscontinued(it) ? 'row-disc' : isNew(it) ? 'row-new' : ''; },
       filter: searchFilter(function (it) { return [it.group, it.erp, it.semi, it.name, it.note, it.note2].join(' '); }),
       newRow: newItem,
-      onChange: function (ri) { persist(); if (ri >= 0) currentGrid.refreshRow(ri); },
+      onChange: function (ri) { persist(); if (ri >= 0) currentGrid.refreshRow(ri); updateUndo(); },
       onDelete: Store.readOnly ? null : function (ri) {
         askConfirm('"' + (state.items[ri].name || state.items[ri].erp) + '" 품목을 삭제할까요?', '삭제').then(function (ok) {
           if (!ok) return;
@@ -764,6 +765,8 @@
 
   // ── 원본 시트 ───────────────────────────────────────
   var NAME_HEADERS = /상품명|품명|모품명|자품명/;
+  var undoStacks = {}; // 시트별 되돌리기 기록 (화면을 다시 그려도 유지, 새로고침하면 초기화)
+  function historyFor(key) { return (undoStacks[key] = undoStacks[key] || []); }
 
   function sheetColumns(key) {
     var sheet = state.sheets[key];
@@ -807,6 +810,7 @@
     currentGrid = new Grid(document.getElementById('gridHost'), {
       columns: roCols(cols),
       groups: sheet.groups,
+      history: historyFor(key),
       rows: function () { return state.sheets[key].rows; },
       stickyCols: key === 'sop' || key === 'stock' || key === 'sales' ? Math.min(3, cols.length) : 1,
       filter: searchFilter(function (row) { return row.join(' '); }),
@@ -819,6 +823,7 @@
         if (ri >= 0) currentGrid.refreshRow(ri);
         else currentGrid.render();
         updateCount(state.sheets[key].rows.length);
+        updateUndo();
       },
       onDelete: Store.readOnly ? null : function (ri) {
         state.sheets[key].rows.splice(ri, 1);
@@ -840,6 +845,8 @@
 
   function sheetShell(o) {
     var acts = {
+      undo: '<button class="btn" type="button" data-act="undo" id="btnUndo" title="마지막 수정·붙여넣기 되돌리기 (Ctrl+Z)"' +
+        (historyFor(curKey()).length ? '' : ' disabled') + '>↶ 되돌리기</button>',
       add: '<button class="btn" type="button" data-act="add">+ 행 추가</button>',
       paste: '<button class="btn" type="button" data-act="paste">붙여넣기로 갱신</button>',
       import: '<button class="btn" type="button" data-act="import">엑셀에서 불러오기</button>'
@@ -857,8 +864,13 @@
       '<div class="sheet-meta muted"><span id="rowCount">' + o.count.toLocaleString('ko-KR') + '행</span>' +
       (o.editedAt ? '<span>마지막 수정 ' + dateLabel(o.editedAt) + '</span>' : '') + '</div></div>' +
       '<div class="toolbar"><input type="search" data-sheet-search placeholder="검색" value="' + esc(prefs['q_' + curKey()] || '') + '" />' +
-      (Store.readOnly ? '' : o.actions.map(function (a) { return acts[a]; }).join('') + metaField) + '</div>' +
+      (Store.readOnly ? '' : acts.undo + o.actions.map(function (a) { return acts[a]; }).join('') + metaField) + '</div>' +
       '<div class="table-wrap grid-wrap" id="gridHost"></div></section>';
+  }
+
+  function updateUndo() {
+    var b = document.getElementById('btnUndo');
+    if (b) b.disabled = !historyFor(curKey()).length;
   }
 
   function updateCount(n) {
@@ -881,6 +893,16 @@
       }, 150);
     }
   });
+  // Ctrl+Z (셀 입력 중이 아닐 때): 표의 마지막 변경 되돌리기
+  document.addEventListener('keydown', function (e) {
+    if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.key.toLowerCase() !== 'z') return;
+    if (!currentGrid || currentGrid.editing || Store.readOnly) return;
+    var t = e.target;
+    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+    e.preventDefault();
+    sheetAction('undo');
+  });
+
   view.addEventListener('change', function (e) {
     if (e.target.matches('[data-meta]')) {
       state.sheets[curKey()].meta = e.target.value.trim();
@@ -890,6 +912,11 @@
 
   function sheetAction(act) {
     var key = curKey();
+    if (act === 'undo') {
+      if (currentGrid && currentGrid.undo()) { if (key === 'semi') { syncSemiFromBom(); persist(); } toast('마지막 변경을 되돌렸습니다'); }
+      updateUndo();
+      return;
+    }
     if (act === 'add') {
       if (key === 'items') state.items.push(newItem());
       else state.sheets[key].rows.push(state.sheets[key].headers.map(function () { return null; }));
@@ -954,6 +981,10 @@
     var rows = parsePasted(pasteKey);
     if (!rows.length) { toast('붙여넣은 내용이 없습니다'); return; }
     var mode = document.querySelector('input[name="pasteMode"]:checked').value;
+    var before = pasteKey === 'items' ? state.items : state.sheets[pasteKey].rows;
+    var hist = historyFor(pasteKey);
+    hist.push({ all: JSON.parse(JSON.stringify(before)) });
+    if (hist.length > 50) hist.shift();
     if (pasteKey === 'items') {
       state.items = mode === 'replace' ? rows : state.items.concat(rows);
     } else {

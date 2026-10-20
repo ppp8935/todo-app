@@ -49,6 +49,8 @@
   function getv(row, col, ci) { return col.value ? col.value(row) : col.key ? row[col.key] : row[ci]; }
   function setv(row, col, ci, v) { if (col.key) row[col.key] = v; else row[ci] = v; }
 
+  function snapshot(row) { return JSON.parse(JSON.stringify(row)); }
+
   function SOPGrid(el, opts) {
     this.el = el;
     this.o = opts;
@@ -212,6 +214,7 @@
     var done = function () {
       if (finished) return;
       finished = true;
+      self.remember([{ ri: ri, before: snapshot(row) }], 0);
       setv(row, col, ci, s.value);
       self.o.onChange(ri);
       self.refreshRow(ri);
@@ -235,6 +238,7 @@
     td.classList.remove('editing');
     var old = getv(row, col, ci);
     if (nv !== old && !(nv === null && (old === null || old === undefined || old === ''))) {
+      this.remember([{ ri: ri, before: snapshot(row) }], 0);
       setv(row, col, ci, nv);
       this.o.onChange(ri);
     }
@@ -265,9 +269,12 @@
     var lines = text.replace(/\r/g, '').replace(/\n$/, '').split('\n').map(function (l) { return l.split('\t'); });
     var ri = Number(td.parentNode.dataset.r), ci = Number(td.dataset.c);
     var vis = this._vis, pos = vis.indexOf(ri);
+    var touched = [], added = 0;
     lines.forEach(function (cells, k) {
       var target = pos + k < vis.length ? vis[pos + k] : null;
+      if (target !== null) touched.push({ ri: target, before: snapshot(rows[target]) });
       if (target === null) {
+        added++;
         rows.push(self.o.newRow ? self.o.newRow() : cols.map(function () { return null; }));
         target = rows.length - 1;
       }
@@ -276,8 +283,31 @@
         if (c < cols.length && !cols[c].readOnly) setv(rows[target], cols[c], c, parseInput(val, cols[c]));
       });
     });
+    this.remember(touched, added);
     this.o.onChange(-1);
     this.render();
+  };
+
+  // ── 되돌리기 ──────────────────────────────────────────
+  // opts.history(배열)에 바뀌기 전 행을 쌓아 두고, undo()로 마지막 변경을 되돌림
+  SOPGrid.prototype.remember = function (changes, added) {
+    var h = this.o.history;
+    if (!h) return;
+    h.push({ changes: changes, added: added || 0 });
+    if (h.length > 50) h.shift();
+  };
+
+  SOPGrid.prototype.undo = function () {
+    var h = this.o.history;
+    if (!h || !h.length) return false;
+    if (this.editing) this.cancelEdit();
+    var last = h.pop(), rows = this.o.rows();
+    if (last.all) { rows.length = 0; Array.prototype.push.apply(rows, last.all); } // 시트 전체 교체 되돌리기
+    if (last.added) rows.splice(rows.length - last.added, last.added);
+    (last.changes || []).forEach(function (c) { if (c.ri < rows.length) rows[c.ri] = c.before; });
+    this.o.onChange(-1);
+    this.render();
+    return true;
   };
 
   SOPGrid.parseInput = parseInput;
