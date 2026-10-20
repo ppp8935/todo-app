@@ -141,7 +141,8 @@
     var sub = document.getElementById('headerSub');
     if (!hasData()) { sub.textContent = '엑셀 파일을 불러오면 대시보드가 생성됩니다'; return; }
     sub.textContent = '기준일 ' + todayStr() + ' · 검토 기간 ' + state.settings.year + '년 ' +
-      months[0] + '~' + months[months.length - 1] + '월 · 품목 ' + state.items.length + '개';
+      months[0] + '~' + months[months.length - 1] + '월 · 품목 ' +
+      state.items.filter(function (it) { return !isDiscontinued(it); }).length + '개 (단종 제외)';
   }
 
   // ── 탭 ───────────────────────────────────────────────
@@ -281,13 +282,14 @@
 
   function won(v) { return '₩' + Math.round(v).toLocaleString('ko-KR'); }
 
-  // 품목군별 재고금액 = Σ 상품단가 × 현재고
+  // 품목군별 재고금액 = Σ 상품단가 × 현재고 (단종 제외)
   function valueStrip() {
     var groups = BRANDS.slice();
-    results.forEach(function (r) { var b = brandOf(r.item); if (groups.indexOf(b) < 0) groups.push(b); });
+    var active = results.filter(function (r) { return !isDiscontinued(r.item); });
+    active.forEach(function (r) { var b = brandOf(r.item); if (groups.indexOf(b) < 0) groups.push(b); });
     var agg = {}, all = { v: 0, miss: 0 };
     groups.forEach(function (g) { agg[g] = { v: 0, miss: 0 }; });
-    results.forEach(function (r) {
+    active.forEach(function (r) {
       var a = agg[brandOf(r.item)];
       a.v += r.stockValue; all.v += r.stockValue;
       if (r.stock > 0 && !r.price) { a.miss++; all.miss++; }
@@ -299,7 +301,7 @@
         '<span class="vhint">' + (a.miss ? '단가 미입력 ' + a.miss + '품목' : '단가 × 현재고') + '</span></button>';
     };
     return '<section class="values" aria-label="품목군별 재고금액">' +
-      groups.filter(function (g) { return g !== '기타' || agg[g].v || results.some(function (r) { return brandOf(r.item) === '기타'; }); })
+      groups.filter(function (g) { return g !== '기타' || agg[g].v || active.some(function (r) { return brandOf(r.item) === '기타'; }); })
         .map(function (g) { return card(g, g + ' 재고금액', agg[g]); }).join('') +
       card('all', '전체 재고금액', all) + '</section>';
   }
@@ -475,7 +477,6 @@
       side += '<details class="more"><summary>판매 실적</summary>' + miniTable(['ERP코드'].concat(mcols.map(function (k) { return sh[k]; })),
         r.salesRows.map(function (s) { return [s[0]].concat(mcols.map(function (k) { return { n: s[k] }; })); })) + '</details>';
     }
-    side += '<details class="more"><summary>월말 잔여 차트</summary>' + balanceBars(pick(months, idx), pick(r.balance, idx)) + '</details>';
 
     return '<div class="plan"><div class="plan-main">' + main + '</div><div class="plan-side">' + side + '</div></div>';
   }
@@ -687,79 +688,6 @@
         }).join('') + '</tr>';
       }).join('') + '</tbody></table></div>';
   }
-
-  // ── 차트 (SVG) ──────────────────────────────────────
-  function niceMax(v) {
-    if (v <= 0) return 1;
-    var p = Math.pow(10, Math.floor(Math.log10(v)));
-    var steps = [1, 2, 2.5, 5, 10];
-    for (var i = 0; i < steps.length; i++) if (steps[i] * p >= v) return steps[i] * p;
-    return 10 * p;
-  }
-  function shortNum(v) {
-    var a = Math.abs(v);
-    if (a >= 10000) return (v / 10000).toLocaleString('ko-KR', { maximumFractionDigits: 1 }) + '만';
-    return Math.round(v).toLocaleString('ko-KR');
-  }
-
-  function barPath(x, y0, w, y1, r) {
-    // y0 = 기준선, y1 = 끝점 (위 또는 아래). 끝쪽 모서리만 둥글게
-    var up = y1 < y0, h = Math.abs(y1 - y0);
-    r = Math.min(r, h, w / 2);
-    if (h < 0.5) return '';
-    if (up) {
-      return 'M' + x + ',' + y0 + 'V' + (y1 + r) + 'Q' + x + ',' + y1 + ' ' + (x + r) + ',' + y1 + 'H' + (x + w - r) +
-        'Q' + (x + w) + ',' + y1 + ' ' + (x + w) + ',' + (y1 + r) + 'V' + y0 + 'Z';
-    }
-    return 'M' + x + ',' + y0 + 'V' + (y1 - r) + 'Q' + x + ',' + y1 + ' ' + (x + r) + ',' + y1 + 'H' + (x + w - r) +
-      'Q' + (x + w) + ',' + y1 + ' ' + (x + w) + ',' + (y1 - r) + 'V' + y0 + 'Z';
-  }
-
-  function axis(W, padL, padR, ticks, scale) {
-    return ticks.map(function (t) {
-      var y = scale(t);
-      return '<line class="grid-line" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y + '" y2="' + y + '"/>' +
-        '<text class="tick" x="' + (padL - 6) + '" y="' + (y + 4) + '" text-anchor="end">' + shortNum(t) + '</text>';
-    }).join('');
-  }
-
-  function balanceBars(months, bal) {
-    var W = 520, H = 180, padL = 44, padR = 8, padT = 16, padB = 28;
-    var hi = Math.max(0, Math.max.apply(null, bal)), lo = Math.min(0, Math.min.apply(null, bal));
-    var span = niceMax(Math.max(hi - lo, 1));
-    var top = hi > 0 ? niceMax(hi) : 0, bottom = lo < 0 ? -niceMax(-lo) : 0;
-    if (top === 0 && bottom === 0) top = span;
-    var sy = function (v) { return padT + (H - padT - padB) * (top - v) / (top - bottom); };
-    var ticks = [bottom, 0, top].filter(function (v, k, arr) { return arr.indexOf(v) === k; });
-    var band = (W - padL - padR) / months.length, bw = Math.min(36, band / 2.4);
-    var s = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="월말 잔여 재고">' + axis(W, padL, padR, ticks, sy);
-    months.forEach(function (m, i) {
-      var cx = padL + band * i + band / 2, v = bal[i];
-      s += '<path class="bar ' + (v <= 0 ? 'bneg' : 's1') + '" d="' + barPath(cx - bw / 2, sy(0), bw, sy(v), 3) + '"/>';
-      var ly = v >= 0 ? sy(v) - 5 : sy(v) + 12;
-      s += '<text class="val' + (v <= 0 ? ' val-neg' : '') + '" x="' + cx + '" y="' + ly + '" text-anchor="middle">' + signed(v) + '</text>';
-      s += '<rect class="hit" x="' + (cx - band / 2) + '" y="' + padT + '" width="' + band + '" height="' + (H - padT - padB) + '" data-tip="' +
-        esc(m + '월|월말 잔여|' + signed(v)) + '"/>';
-      s += '<text class="tick" x="' + cx + '" y="' + (H - 8) + '" text-anchor="middle">' + m + '월</text>';
-    });
-    s += '<line class="baseline" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + sy(0) + '" y2="' + sy(0) + '"/></svg>';
-    return s;
-  }
-
-  // 툴팁
-  var tip = document.getElementById('tooltip');
-  document.addEventListener('mousemove', function (e) {
-    var t = e.target.closest && e.target.closest('[data-tip]');
-    if (!t) { tip.hidden = true; return; }
-    var parts = t.dataset.tip.split('|');
-    var h = '<b>' + esc(parts[0]) + '</b>';
-    for (var k = 1; k < parts.length; k += 2) h += '<div><span>' + esc(parts[k]) + '</span><b>' + esc(parts[k + 1]) + '</b></div>';
-    tip.innerHTML = h;
-    tip.hidden = false;
-    var x = Math.min(e.clientX + 14, window.innerWidth - tip.offsetWidth - 8);
-    tip.style.left = x + 'px';
-    tip.style.top = (e.clientY + 14) + 'px';
-  });
 
   // ── 품목 상세 ───────────────────────────────────────
   // 반제품 BOM에서 모품번 = ERP코드인 자품번 목록

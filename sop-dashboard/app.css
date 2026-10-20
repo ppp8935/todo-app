@@ -322,7 +322,6 @@ input, select, textarea, button { font: inherit; color: inherit; }
 .more summary { padding: 7px 12px; cursor: pointer; color: var(--ink-2); font-weight: 700; }
 .more summary:hover { background: var(--surface-2); }
 .more[open] summary { border-bottom: 1px solid var(--line); }
-.more .chart { padding: 6px 12px; }
 .mini-table { width: 100%; border-collapse: collapse; }
 .mini-table th { text-align: left; color: var(--muted); font-weight: 700; padding: 4px 10px; border-bottom: 1px solid var(--line); background: var(--surface-2); font-size: var(--fs-s); }
 .mini-table td { padding: 4px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
@@ -434,26 +433,6 @@ th, td { white-space: nowrap; }
 .icon-btn:hover { background: var(--critical-bg); color: var(--critical-ink); }
 .grid-more { padding: 10px; text-align: center; }
 .grid-empty { padding: 28px 16px; color: var(--muted); text-align: center; margin: 0; }
-
-/* ── 차트 ───────────────────────────────────────────── */
-.chart { width: 100%; height: auto; display: block; max-width: 620px; }
-.chart .grid-line { stroke: var(--line); stroke-width: 1; }
-.chart .baseline { stroke: var(--line-strong); stroke-width: 1; }
-.chart .tick { fill: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
-.chart .val { fill: var(--ink-2); font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.chart .val-neg { fill: var(--critical-ink); }
-.chart .bar.s1 { fill: var(--accent); }
-.chart .bar.bneg { fill: var(--critical); }
-.chart .hit { fill: transparent; }
-.chart .hit:hover { fill: var(--ink); fill-opacity: .04; }
-
-.tooltip {
-  position: fixed; z-index: 80; pointer-events: none; min-width: 130px;
-  background: var(--surface); border: 1px solid var(--line-strong); border-radius: 5px; box-shadow: var(--shadow);
-  padding: 6px 9px; font-size: var(--fs-s);
-}
-.tooltip div { display: flex; justify-content: space-between; gap: 14px; color: var(--ink-2); }
-.tooltip div b { color: var(--ink); font-variant-numeric: tabular-nums; }
 
 /* ── 대화상자 ───────────────────────────────────────── */
 .modal {
