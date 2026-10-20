@@ -137,14 +137,11 @@
   function recompute() { results = E.computeMaster(state); }
 
   function updateHeader() {
-    var months = E.windowMonths(state.settings);
     var sub = document.getElementById('headerSub');
     var tab = TABS.filter(function (t) { return t.key === prefs.tab; })[0];
     document.getElementById('pageTitle').textContent = tab ? (tab.key === 'dashboard' ? 'S&OP 대시보드' : tab.label) : 'S&OP 대시보드';
-    if (!hasData()) { sub.textContent = '엑셀 파일을 불러오면 대시보드가 생성됩니다'; return; }
-    sub.textContent = '기준일 ' + todayStr() + ' · 검토 기간 ' + state.settings.year + '년 ' +
-      months[0] + '~' + months[months.length - 1] + '월 · 품목 ' +
-      state.items.filter(function (it) { return !isDiscontinued(it); }).length + '개 (단종 제외)';
+    sub.textContent = hasData() ? '' : '엑셀 파일을 불러오면 대시보드가 생성됩니다';
+    sub.hidden = hasData();
   }
 
   // ── 탭 ───────────────────────────────────────────────
@@ -228,6 +225,7 @@
   var openRow = null;   // 리덴스 표에서 펼친 품목 index
   var openExc = null;   // 발주 점검 품목에서 펼친 품목 index
   var excOpen = false;  // 발주 점검 품목 드롭다운 펼침 여부
+  var buyOpen = false;  // 예상 매입금액 드롭다운 (새로 열면 항상 닫힘)
   var fold = { flow: false, bal: false }; // 표의 접는 열 묶음 (새로 열면 항상 접힘)
 
   function inBrand(r) { return !prefs.brand || prefs.brand === 'all' || brandOf(r.item) === prefs.brand; }
@@ -296,21 +294,21 @@
       a.v += r.stockValue; all.v += r.stockValue;
       if (r.stock > 0 && !r.price) { a.miss++; all.miss++; }
     });
-    var card = function (key, label, a) {
+    var cell = function (key, label, a, cls) {
       var on = (prefs.brand || 'all') === key;
-      return '<button type="button" class="vcard' + (on ? ' on' : '') + '" data-brand="' + esc(key) + '" aria-pressed="' + on + '">' +
+      return '<button type="button" class="vcell' + (cls ? ' ' + cls : '') + (on ? ' on' : '') + '" data-brand="' + esc(key) + '" aria-pressed="' + on + '">' +
         '<span class="vlabel">' + esc(label) + '</span><span class="vvalue">' + won(a.v) + '</span>' +
         '<span class="vhint">' + (a.miss ? '단가 미입력 ' + a.miss + '품목' : '단가 × 현재고') + '</span></button>';
     };
-    return '<section class="values" aria-label="품목군별 재고금액">' +
+    return '<section class="panel values" aria-labelledby="valTitle"><div class="panel-head"><h2 id="valTitle">재고금액</h2>' +
+      '<span class="muted">상품단가 × 현재고 · 단종 제외 · 누르면 그 품목군만 보기</span></div><div class="values-grid">' +
       groups.filter(function (g) { return g !== '기타' || agg[g].v || active.some(function (r) { return brandOf(r.item) === '기타'; }); })
-        .map(function (g) { return card(g, g + ' 재고금액', agg[g]); }).join('') +
-      card('all', '전체 재고금액', all) + '</section>';
+        .map(function (g) { return cell(g, g, agg[g]); }).join('') +
+      cell('all', '총 합계', all, 'vtotal') + '</div></section>';
   }
 
   function renderDashboard(view) {
     var scope = results.filter(inScope);
-    var orderScope = results.filter(orderable);
     var months = E.windowMonths(state.settings);
     if (period !== 'all' && months.indexOf(period) < 0) period = 'all';
     var idx = periodIdx(months);
@@ -318,32 +316,24 @@
     var exc = exceptions(idx);
     var brand = prefs.brand && prefs.brand !== 'all' ? prefs.brand : null;
 
-    var sum = function (list, f) { return list.reduce(function (s, r) { return s + f(r); }, 0); };
-    var recTotal = sum(orderScope, function (r) { return r.status === 'urgent' || r.status === 'review' ? (r.recommended || 0) : 0; });
-
-    var h = valueStrip();
-    h += '<div class="scopebar">' +
-      '<span class="scope-label">품목군</span>' +
+    // 맨 위: 품목군·기간 선택 → 재고금액 → 예상 매입금액(접힘) → 발주 점검 품목(접힘) → 품목 표
+    var h = '<div class="scopebar">' +
+      '<div class="scope-group"><span class="scope-label">품목군</span>' +
       '<div class="seg" role="group" aria-label="품목군">' +
       ['all'].concat(BRANDS).map(function (b) {
         var on = (prefs.brand || 'all') === b;
         return '<button type="button" data-brand="' + b + '" class="' + (on ? 'on' : '') + '" aria-pressed="' + on + '">' + (b === 'all' ? '전체' : b) + '</button>';
-      }).join('') + '</div>' +
-      '<span class="scope-label">기간</span>' +
+      }).join('') + '</div></div>' +
+      '<div class="scope-group"><span class="scope-label">기간</span>' +
       '<div class="seg" role="group" aria-label="보기 기간">' +
       '<button type="button" data-period="all" class="' + (period === 'all' ? 'on' : '') + '" aria-pressed="' + (period === 'all') + '">전체 기간</button>' +
       months.map(function (m) {
         return '<button type="button" data-period="' + m + '" class="' + (period === m ? 'on' : '') + '" aria-pressed="' + (period === m) + '">' + m + '월</button>';
-      }).join('') + '</div>' +
+      }).join('') + '</div></div>' +
       '<span class="scope-chip">기준일 ' + todayStr() + '</span>' +
       '</div>';
 
-    h += '<section class="kpis">' +
-      kpi('입고예정', n0(sum(scope, function (r) { return total(pick(r.inbound, idx)); })), 'EA', '', pl + ' 납기 기준') +
-      kpi('S&OP 수요', n0(sum(scope, function (r) { return total(pick(r.demand, idx)); })), 'EA', '', pl + ' 합계') +
-      kpi('권장 발주량 합계', n0(recTotal), 'EA', '', '즉시 발주·발주 검토 품목, MOQ ' + n0(state.settings.moq)) +
-      '</section>';
-
+    h += valueStrip();
     h += purchasePanel(months, idx);
 
     h += '<details class="panel exc" id="excBox"' + (excOpen ? ' open' : '') + '>' +
@@ -353,7 +343,7 @@
 
     var statuses = [['all', '전체'], ['urgent', '즉시 발주'], ['review', '발주 검토'], ['watch', '품절 예상'], ['ok', '정상']];
     h += '<section class="panel" id="allItems"><div class="panel-head"><h2>' + esc(brand || '전체 품목') + ' <span class="count plain">' + scope.length + '</span></h2>' +
-      '<span class="muted">단종 제외 · 품목을 누르면 바로 아래에 수급 계획표 · 열 묶음 제목을 누르면 펼치기/접기</span></div>' +
+      '<span class="muted">단종 제외 · 왼쪽 ▸를 누르거나 행을 누르면 수급 계획표가 펼쳐집니다 · 열 묶음 제목을 누르면 펼치기/접기</span></div>' +
       '<div class="filters">' +
       '<input type="search" id="dashSearch" placeholder="품목군·코드·상품명 검색" value="' + esc(prefs.query || '') + '" />' +
       '<div class="seg" role="group" aria-label="상태 필터">' + statuses.map(function (s) {
@@ -363,6 +353,7 @@
 
     view.innerHTML = h;
     document.getElementById('excBox').addEventListener('toggle', function (e) { excOpen = e.target.open; });
+    document.getElementById('buyBox').addEventListener('toggle', function (e) { buyOpen = e.target.open; });
     fitDetails();
   }
 
@@ -381,9 +372,9 @@
     });
     var sel = prefs.brand && prefs.brand !== 'all' ? prefs.brand : null;
     var cell = function (v, k) { return '<td class="num' + (idx.indexOf(k) >= 0 && idx.length === 1 ? ' pcol' : '') + (v ? '' : ' zero') + '">' + (v ? won(v) : '—') + '</td>'; };
-    var h = '<section class="panel buy"><div class="panel-head"><h2>입고예정 예상 매입금액</h2>' +
+    var h = '<details class="panel buy" id="buyBox"' + (buyOpen ? ' open' : '') + '><summary class="panel-head"><h2>입고예정 예상 매입금액' + (total(tot) ? ' <span class="count plain">' + won(total(tot)) + '</span>' : '') + '</h2>' +
       '<span class="muted">입고예정 수량 × 상품단가 · 납기월 기준' +
-      (noPrice.n ? ' · 단가 미입력 ' + noPrice.n + '품목(입고예정 ' + n0(noPrice.qty) + ' EA)은 금액에서 빠짐' : '') + '</span></div>' +
+      (noPrice.n ? ' · 단가 미입력 ' + noPrice.n + '품목(입고예정 ' + n0(noPrice.qty) + ' EA)은 금액에서 빠짐' : '') + '</span></summary>' +
       '<div class="table-wrap"><table class="buy-table"><thead><tr><th>품목군</th>' +
       months.map(function (m, k) { return '<th class="num' + (idx.indexOf(k) >= 0 && idx.length === 1 ? ' pcol' : '') + '">' + m + '월</th>'; }).join('') +
       '<th class="num">합계</th></tr></thead><tbody>' +
@@ -392,13 +383,8 @@
           '<td class="num sum">' + (total(amt[g]) ? won(total(amt[g])) : '—') + '</td></tr>';
       }).join('') +
       '<tr class="tot"><th scope="row">합계</th>' + tot.map(cell).join('') + '<td class="num sum">' + (total(tot) ? won(total(tot)) : '—') + '</td></tr>' +
-      '</tbody></table></div></section>';
+      '</tbody></table></div></details>';
     return h;
-  }
-
-  function kpi(label, value, unit, cls, hint) {
-    return '<div class="kpi ' + cls + '"><span class="kpi-label">' + esc(label) + '</span>' +
-      '<span class="kpi-value">' + value + '<small>' + unit + '</small></span><span class="kpi-hint">' + esc(hint) + '</span></div>';
   }
 
   function exceptionList(exc, idx) {
@@ -529,8 +515,11 @@
     var mN = idx.length;
     var groups = [];
     groups.push({ label: '기본 정보', cols: [
+      { th: '<span class="sr-only">상세</span>', cls: 'sticky-t tog', td: function (r, x) {
+        return '<span class="tog-btn" aria-hidden="true"></span><span class="sr-only">' + (x.open ? '상세 닫기' : '상세 보기') + '</span>';
+      } },
       { th: '품목군', cls: 'sticky-l grp', td: function (r) { return esc(brandOf(r.item)); } },
-      { th: 'ERP코드', cls: 'sticky-l2 code', td: function (r, x) { return '<span class="caret" aria-hidden="true">' + (x.open ? '▾' : '▸') + '</span>' + esc(r.item.erp); } },
+      { th: 'ERP코드', cls: 'sticky-l2 code', td: function (r) { return esc(r.item.erp); } },
       { th: '상품명', cls: 'sticky-l3 name', td: function (r) { return esc(r.item.name); }, title: function (r) { return r.item.name; } }
     ] });
     groups.push({ label: '재고 현황', cols: [
@@ -608,7 +597,7 @@
     rows.forEach(function (r) {
       var dem = pick(r.demand, idx);
       var x = { open: r.index === openRow, dem: dem, inb: pick(r.inbound, idx), cv: cover(r.stock, total(dem) / idx.length) };
-      h += '<tr data-i="' + r.index + '" class="' + (isNew(r.item) ? 'newp' : '') + (x.open ? ' sel' : '') + '" aria-expanded="' + x.open + '">' +
+      h += '<tr data-i="' + r.index + '" class="' + (isNew(r.item) ? 'newp' : '') + (x.open ? ' sel open' : '') + '" aria-expanded="' + x.open + '" title="' + (x.open ? '눌러서 수급 계획표 닫기' : '눌러서 수급 계획표 보기') + '">' +
         flat.map(function (f) {
           var c = f.c;
           var cls = [c.cls || '', c.num ? 'num' : '', f.start ? 'gs' : '', f.band, c.extra ? c.extra(r, x) : '', c.neg && c.neg(r) ? 'neg' : ''].join(' ');

@@ -2,14 +2,14 @@
    레이아웃: 흰 마스트헤드(빨간 워드마크) → 짙은 서브내비(금색 선택 막대) → 따뜻한 회색 페이지 띠(Georgia 제목 + 금색 줄)
             → 재고금액 → 범위·KPI → 예상 매입금액 → 발주 점검 품목(접힘) → 품목 표
    색: 따뜻한 회색 사다리 + 숯색 동작 1색, 빨강은 워드마크에만. 그림자 없음, 깊이는 회색 단계로만.
-   글씨: 본문 맑은 고딕 12px(엑셀 9pt), 제목 Georgia(한글은 나눔명조) */
+   글씨: 맑은 고딕 하나 (본문 12px = 엑셀 9pt, 제목은 굵기로 구분) */
 :root {
   color-scheme: light;
   --font: "Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
-  --font-display: Georgia, "Nanum Myeongjo", "Batang", "AppleMyungjo", serif;
   --fs: 12px;          /* 기본 (엑셀 9pt) */
   --fs-s: 11px;        /* 보조 글씨 */
-  --fs-h: 16px;        /* 패널 제목 (Georgia) */
+  --fs-h: 14px;        /* 패널 제목 */
+  --head-bg: #ebe7e3;  /* 섹션 머리 띠 */
 
   /* 회색 사다리 */
   --page: #fbf9f8;        /* canvas-soft: 내용 바탕 */
@@ -55,7 +55,7 @@
     color-scheme: dark;
     --page: #161513; --hero: #211e1c; --surface: #1c1a18; --surface-2: #262220; --surface-ro: #24201e; --band: #1f1c1a;
     --ink: #f1efed; --ink-2: #d4cfca; --muted: #aea8a2; --line: #34302c; --line-strong: #4a443f;
-    --ink-deep: #0f0e0d; --brand: #e0705f; --navy: #f1efed; --navy-pressed: #d4cfca; --navy-ink: #161513;
+    --ink-deep: #0f0e0d; --head-bg: #2b2724; --brand: #e0705f; --navy: #f1efed; --navy-pressed: #d4cfca; --navy-ink: #161513;
     --accent: #6cc0dc; --accent-ink: #161513; --focus: #6cc0dc; --sel: #2c2825; --in-bg: #1d3033;
     --critical-ink: #f29a8a; --critical-bg: #3b1f1a; --warning-ink: #f0cc71; --warning-bg: #3a3018;
     --good-ink: #9cc8a7; --good-bg: #1e3329; --neg-bg: #3b1f1a;
@@ -65,7 +65,7 @@
   color-scheme: dark;
   --page: #161513; --hero: #211e1c; --surface: #1c1a18; --surface-2: #262220; --surface-ro: #24201e; --band: #1f1c1a;
   --ink: #f1efed; --ink-2: #d4cfca; --muted: #aea8a2; --line: #34302c; --line-strong: #4a443f;
-  --ink-deep: #0f0e0d; --brand: #e0705f; --navy: #f1efed; --navy-pressed: #d4cfca; --navy-ink: #161513;
+  --ink-deep: #0f0e0d; --head-bg: #2b2724; --brand: #e0705f; --navy: #f1efed; --navy-pressed: #d4cfca; --navy-ink: #161513;
   --accent: #6cc0dc; --accent-ink: #161513; --focus: #6cc0dc; --sel: #2c2825; --in-bg: #1d3033;
   --critical-ink: #f29a8a; --critical-bg: #3b1f1a; --warning-ink: #f0cc71; --warning-bg: #3a3018;
   --good-ink: #9cc8a7; --good-bg: #1e3329; --neg-bg: #3b1f1a;
@@ -81,7 +81,7 @@ body {
   font: var(--fs)/1.5 var(--font);
 }
 h1, h2, h3 { margin: 0; font-weight: 800; letter-spacing: 0; line-height: 1.2; }
-h2 { font-family: var(--font-display); font-weight: 400; font-size: var(--fs-h); }
+h2 { font-weight: 800; font-size: var(--fs-h); }
 h3 { font-size: var(--fs); margin: 16px 0 6px; }
 .muted { color: var(--muted); }
 .small { font-size: var(--fs-s); }
@@ -102,7 +102,7 @@ input, select, textarea, button { font: inherit; color: inherit; }
 }
 .btn:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); }
 .btn:disabled { color: var(--muted); border-color: var(--line); background: var(--page); cursor: not-allowed; }
-.btn:focus-visible, .tab:focus-visible, .exc-row:focus-visible, input:focus-visible, summary:focus-visible, .vcard:focus-visible, .seg button:focus-visible {
+.btn:focus-visible, .tab:focus-visible, .exc-row:focus-visible, input:focus-visible, summary:focus-visible, .vcell:focus-visible, .seg button:focus-visible {
   outline: 2px solid var(--focus); outline-offset: 1px;
 }
 .btn-primary { background: var(--navy); border-color: var(--navy); color: var(--navy-ink); }
@@ -147,9 +147,10 @@ input, select, textarea, button { font: inherit; color: inherit; }
   padding-block: 18px 16px;
   padding-left: max(20px, env(safe-area-inset-left, 0px)); padding-right: max(20px, env(safe-area-inset-right, 0px));
 }
-.hero h1 { font-family: var(--font-display); font-weight: 400; font-size: 28px; color: var(--ink); }
+.hero h1 { font-weight: 800; font-size: 22px; color: var(--ink); }
 .gold-rule { display: block; width: 40px; height: 4px; background: var(--gold); margin: 10px 0 8px; }
 .hero p { margin: 0; color: var(--ink-2); }
+.hero p[hidden] { display: none; }
 
 .view {
   padding-block: 12px 48px;
@@ -168,24 +169,34 @@ input, select, textarea, button { font: inherit; color: inherit; }
 .empty h2 { font-size: 15px; }
 .empty p { margin: 0; }
 
-/* ── 품목군별 재고금액 ─────────────────────────────── */
-.values { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
-.vcard {
-  display: flex; flex-direction: column; gap: 1px; text-align: left; cursor: pointer;
-  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 9px 12px;
+/* ── 품목군·기간 선택 (맨 위, 크게) ──────────────────── */
+.scopebar {
+  display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px;
 }
-.vcard:hover { border-color: var(--line-strong); }
-.vcard.on { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
-.vlabel { color: var(--muted); }
-.vvalue { font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.scope-group { display: inline-flex; align-items: center; gap: 8px; }
+.scope-label { color: var(--ink); font-weight: 800; font-size: 13px; }
+.scopebar .seg button { height: 34px; padding: 0 16px; font-size: 13px; }
+.scopebar .seg button.on { font-weight: 700; }
+.scope-chip { background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: 4px; padding: 6px 10px; color: var(--ink-2); font-size: 13px; margin-left: auto; }
+.check { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; margin-left: 6px; }
+
+/* ── 재고금액: 머리 하나 + 품목군별 칸 ─────────────────── */
+.values-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.vcell {
+  display: flex; flex-direction: column; gap: 2px; text-align: left; cursor: pointer;
+  background: var(--surface); border: 0; border-right: 1px solid var(--line); padding: 10px 14px;
+  border-bottom: 3px solid transparent;
+}
+.vcell:last-child { border-right: 0; }
+.vcell:hover { background: var(--page); }
+.vcell.on { border-bottom-color: var(--ink); background: var(--page); }
+.vcell.vtotal { background: var(--surface-2); }
+.vcell.vtotal .vlabel { color: var(--ink); font-weight: 800; }
+.vlabel { color: var(--ink-2); font-weight: 700; }
+.vvalue { font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .vhint { font-size: var(--fs-s); color: var(--muted); }
 
-/* ── 범위 표시 · KPI ───────────────────────────────── */
-.scopebar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.scope-label { color: var(--muted); }
-.scope-chip { background: var(--surface); border: 1px solid var(--line-strong); border-radius: 4px; padding: 2px 8px; color: var(--ink-2); }
-.check { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; margin-left: 6px; }
-.kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 /* 입고예정 예상 매입금액 */
 .buy-table { width: 100%; border-collapse: collapse; }
 .buy-table th, .buy-table td { padding: 5px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
@@ -198,25 +209,18 @@ input, select, textarea, button { font: inherit; color: inherit; }
 .buy-table tr.tot th, .buy-table tr.tot td { font-weight: 700; color: var(--ink); background: var(--surface-2); border-bottom: 0; }
 .buy-table tr.sel th, .buy-table tr.sel td { background: var(--sel); }
 .buy-table .pcol { box-shadow: inset 0 -2px 0 var(--ink); }
-.kpi {
-  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
-  padding: 9px 12px; display: flex; flex-direction: column; gap: 1px; min-width: 0;
-}
-.kpi-label { color: var(--muted); }
-.kpi-value { font-size: 20px; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
-.kpi-value small { font-size: var(--fs-s); font-weight: 400; color: var(--muted); margin-left: 3px; }
-.kpi.crit .kpi-value { color: var(--critical-ink); }
-.kpi-hint { font-size: var(--fs-s); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
 /* ── 패널 ───────────────────────────────────────────── */
 .panel {
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
   overflow: hidden; min-width: 0;
 }
 .panel-head {
-  display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap;
-  padding: 9px 12px; border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  padding: 10px 12px 10px 14px; border-bottom: 1px solid var(--line-strong);
+  background: var(--head-bg); box-shadow: inset 4px 0 0 var(--navy); /* 섹션 머리 띠: 진한 색 + 왼쪽 막대 */
 }
+.panel-head h2 { color: var(--ink); }
+.panel-head .muted { color: var(--ink-2); }
 .panel-head .desc { margin: 3px 0 0; max-width: 900px; }
 .panel-head .muted { font-size: var(--fs-s); }
 
@@ -230,13 +234,13 @@ input, select, textarea, button { font: inherit; color: inherit; }
 .chip.st-good { background: var(--good-bg); color: var(--good-ink); }
 .chip.st-neutral { background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--line); line-height: 16px; }
 
-/* ── 발주 점검 품목 (드롭다운) ─────────────────────── */
-.exc > summary { cursor: pointer; list-style: none; border-bottom: 0; align-items: center; }
-.exc > summary::-webkit-details-marker { display: none; }
-.exc > summary h2::before { content: "▸"; display: inline-block; width: 14px; color: var(--muted); }
-.exc[open] > summary h2::before { content: "▾"; }
-.exc[open] > summary { border-bottom: 1px solid var(--line); }
-.exc > summary:hover { background: var(--surface-2); }
+/* ── 접고 펴는 섹션 (예상 매입금액 · 발주 점검 품목) ── */
+details.panel > summary { cursor: pointer; list-style: none; border-bottom: 0; }
+details.panel > summary::-webkit-details-marker { display: none; }
+details.panel > summary h2::before { content: "▸"; display: inline-block; width: 16px; color: var(--ink); }
+details.panel[open] > summary h2::before { content: "▾"; }
+details.panel[open] > summary { border-bottom: 1px solid var(--line-strong); }
+details.panel > summary:hover { filter: brightness(.97); }
 .count.plain { background: var(--surface-2); color: var(--ink-2); }
 .count { display: inline-block; min-width: 20px; padding: 0 6px; margin-left: 6px; border-radius: 4px; font-family: var(--font); font-weight: 700; vertical-align: 2px; background: var(--critical-bg); color: var(--critical-ink); font-size: var(--fs-s); text-align: center; }
 .exc-head, .exc-row {
@@ -270,7 +274,22 @@ input, select, textarea, button { font: inherit; color: inherit; }
 .plan-bar b { color: var(--ink); }
 .master > tbody > tr.detail-row > td { padding: 0; background: var(--page); box-shadow: none; border-bottom: 2px solid var(--line-strong); cursor: default; }
 .detail-inner { position: sticky; left: 0; width: var(--dw, 100%); padding: 10px 12px 12px; }
-.caret { display: inline-block; width: 12px; color: var(--muted); }
+.master > thead > tr > th.tog, .master > tbody > tr > td.tog { width: 30px; min-width: 30px; max-width: 30px; padding: 0; text-align: center; }
+.tog-btn {
+  display: inline-grid; place-items: center; width: 22px; height: 22px; border: 1px solid var(--line-strong); border-radius: 4px;
+  color: var(--ink-2); font-size: 13px; font-weight: 700; line-height: 1; background: var(--surface);
+}
+/* 화살표는 글꼴 대신 선으로: 닫힘 → 오른쪽, 펼침 → 아래 */
+.tog-btn::before {
+  content: ""; width: 6px; height: 6px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor;
+  transform: translateX(-1px) rotate(-45deg);
+}
+.master > tbody > tr.open .tog-btn::before { transform: translateY(-1px) rotate(45deg); }
+.master > tbody > tr[data-i]:hover .tog-btn { border-color: var(--ink); color: var(--ink); }
+.master > tbody > tr.open:hover .tog-btn { border-color: var(--navy); color: var(--navy-ink); }
+.master > tbody > tr.open .tog-btn { background: var(--navy); border-color: var(--navy); color: var(--navy-ink); }
+.master > tbody > tr.open > td { font-weight: 700; }
+.master > tbody > tr.open > td:first-child, .master > tbody > tr.detail-row > td { box-shadow: inset 4px 0 0 var(--navy) !important; }
 .plan-table { width: 100%; border-collapse: collapse; }
 .plan-table.single { width: auto; }
 .plan-table.single td { min-width: 140px; }
@@ -349,11 +368,12 @@ th, td { white-space: nowrap; }
 .master > tbody > tr > td.warn-t { color: var(--warning-ink); font-weight: 700; }
 .master > tbody > tr > td.bal-neg, .master > tbody > tr:hover > td.bal-neg { background: var(--neg-bg); color: var(--critical-ink); font-weight: 700; }
 .master > tbody > tr > td.overridden { text-decoration: underline dotted var(--muted); text-underline-offset: 3px; cursor: help; }
-.master .sticky-l, .master .sticky-l2, .master .sticky-l3 { position: sticky; z-index: 1; }
-.master .sticky-l { left: 0; min-width: 64px; max-width: 64px; }
-.master .sticky-l2 { left: 64px; min-width: 82px; max-width: 82px; }
-.master .sticky-l3 { left: 146px; box-shadow: inset -1px 0 0 var(--line-strong) !important; }
-.master > thead > tr > th.sticky-l, .master > thead > tr > th.sticky-l2, .master > thead > tr > th.sticky-l3 { z-index: 3; }
+.master .sticky-t, .master .sticky-l, .master .sticky-l2, .master .sticky-l3 { position: sticky; z-index: 1; }
+.master .sticky-t { left: 0; }
+.master .sticky-l { left: 30px; min-width: 64px; max-width: 64px; }
+.master .sticky-l2 { left: 94px; min-width: 82px; max-width: 82px; }
+.master .sticky-l3 { left: 176px; box-shadow: inset -1px 0 0 var(--line-strong) !important; }
+.master > thead > tr > th.sticky-t, .master > thead > tr > th.sticky-l, .master > thead > tr > th.sticky-l2, .master > thead > tr > th.sticky-l3 { z-index: 3; }
 .master > thead > tr.grp > th.sticky-grp { left: 0; }
 .master > tbody > tr > td.name { max-width: 250px; min-width: 180px; overflow: hidden; text-overflow: ellipsis; text-align: left; }
 .master > tbody > tr > td.grp { color: var(--ink-2); }
@@ -469,7 +489,6 @@ textarea {
   .top-actions { width: 100%; }
   .top-actions .btn { flex: 1; justify-content: center; }
   .save-state { order: 9; width: 100%; }
-  .kpis { grid-template-columns: minmax(0, 1fr); }
   .exc-head, .exc-row { grid-template-columns: 3px 64px minmax(0, 1fr) 72px; }
   .exc-head span:nth-child(2), .exc-row > span:nth-child(2), .exc-head span:nth-child(5), .exc-row > span:nth-child(5), .exc-head span:last-child, .exc-row > span:last-child { display: none; }
   .master .sticky-l2, .master .sticky-l3 { position: static; }
