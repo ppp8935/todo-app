@@ -198,8 +198,8 @@
   };
   var period = 'all';   // 보기 기간: 'all'(전체 기간) 또는 월 숫자. 새로 열면 항상 전체 기간
   var openRow = null;   // 리덴스 표에서 펼친 품목 index
-  var openExc = null;   // 발주 필요 품목에서 펼친 품목 index
-  var excOpen = false;  // 발주 필요 품목 드롭다운 펼침 여부
+  var openExc = null;   // 발주 점검 품목에서 펼친 품목 index
+  var excOpen = false;  // 발주 점검 품목 드롭다운 펼침 여부
   var fold = { flow: false, bal: false }; // 표의 접는 열 묶음 (새로 열면 항상 접힘)
 
   function inBrand(r) { return !prefs.brand || prefs.brand === 'all' || brandOf(r.item) === prefs.brand; }
@@ -246,7 +246,7 @@
     return 'h-good';
   }
 
-  // 발주 필요 품목: 보기 기간 안에 월말 잔여가 0 이하인 품목 (신제품·단종 제외)
+  // 발주 점검 품목: 보기 기간 안에 월말 잔여가 0 이하인 품목 (신제품·단종 제외)
   // 즉시 발주 → 발주 검토 → 품절 예상 순, 같은 단계에서는 부족량 큰 순
   function exceptions(idx) {
     return results.filter(function (r) {
@@ -290,8 +290,6 @@
     var brand = prefs.brand && prefs.brand !== 'all' ? prefs.brand : null;
 
     var sum = function (list, f) { return list.reduce(function (s, r) { return s + f(r); }, 0); };
-    var urgent = orderScope.filter(function (r) { return r.status === 'urgent'; }).length;
-    var review = orderScope.filter(function (r) { return r.status === 'review'; }).length;
     var recTotal = sum(orderScope, function (r) { return r.status === 'urgent' || r.status === 'review' ? (r.recommended || 0) : 0; });
 
     var h = valueStrip();
@@ -312,15 +310,15 @@
       '</div>';
 
     h += '<section class="kpis">' +
-      kpi('즉시 발주', urgent, '품목', 'crit', review ? '발주 검토 ' + review + '품목 별도' : '발주 기한이 지났거나 오늘') +
-      kpi('품절 품목', exc.length, '품목', '', pl + ' 중 월말 잔여 ≤ 0 · 신제품 제외') +
       kpi('입고예정', n0(sum(scope, function (r) { return total(pick(r.inbound, idx)); })), 'EA', '', pl + ' 납기 기준') +
       kpi('S&OP 수요', n0(sum(scope, function (r) { return total(pick(r.demand, idx)); })), 'EA', '', pl + ' 합계') +
       kpi('권장 발주량 합계', n0(recTotal), 'EA', '', '즉시 발주·발주 검토 품목, MOQ ' + n0(state.settings.moq)) +
       '</section>';
 
+    h += purchasePanel(months, idx);
+
     h += '<details class="panel exc" id="excBox"' + (excOpen ? ' open' : '') + '>' +
-      '<summary class="panel-head"><h2>발주 필요 품목 <span class="count">' + exc.length + '</span></h2>' +
+      '<summary class="panel-head"><h2>발주 점검 품목 <span class="count">' + exc.length + '</span></h2>' +
       '<span class="muted">' + pl + ' 품절 품목 · 신제품·단종 제외 · 부족량 큰 순 · 품목을 누르면 수급 계획표가 펼쳐집니다</span></summary>' +
       '<div id="excWrap">' + exceptionList(exc, idx) + '</div></details>';
 
@@ -337,6 +335,36 @@
     view.innerHTML = h;
     document.getElementById('excBox').addEventListener('toggle', function (e) { excOpen = e.target.open; });
     fitDetails();
+  }
+
+  // 입고예정 품목의 예상 매입금액 = 입고예정 수량 × 상품단가 (월별 × 품목군별)
+  function purchasePanel(months, idx) {
+    var groups = BRANDS.slice(), noPrice = { n: 0, qty: 0 };
+    var rows = results.filter(function (r) { return E.hasCode(r.item.erp) && !isDiscontinued(r.item); });
+    rows.forEach(function (r) { var b = brandOf(r.item); if (groups.indexOf(b) < 0) groups.push(b); });
+    var amt = {}, tot = months.map(function () { return 0; });
+    groups.forEach(function (g) { amt[g] = months.map(function () { return 0; }); });
+    rows.forEach(function (r) {
+      var q = total(r.inbound);
+      if (!q) return;
+      if (!r.price) { noPrice.n++; noPrice.qty += q; return; }
+      r.inbound.forEach(function (v, k) { amt[brandOf(r.item)][k] += v * r.price; tot[k] += v * r.price; });
+    });
+    var sel = prefs.brand && prefs.brand !== 'all' ? prefs.brand : null;
+    var cell = function (v, k) { return '<td class="num' + (idx.indexOf(k) >= 0 && idx.length === 1 ? ' pcol' : '') + (v ? '' : ' zero') + '">' + (v ? won(v) : '—') + '</td>'; };
+    var h = '<section class="panel buy"><div class="panel-head"><h2>입고예정 예상 매입금액</h2>' +
+      '<span class="muted">입고예정 수량 × 상품단가 · 납기월 기준' +
+      (noPrice.n ? ' · 단가 미입력 ' + noPrice.n + '품목(입고예정 ' + n0(noPrice.qty) + ' EA)은 금액에서 빠짐' : '') + '</span></div>' +
+      '<div class="table-wrap"><table class="buy-table"><thead><tr><th>품목군</th>' +
+      months.map(function (m, k) { return '<th class="num' + (idx.indexOf(k) >= 0 && idx.length === 1 ? ' pcol' : '') + '">' + m + '월</th>'; }).join('') +
+      '<th class="num">합계</th></tr></thead><tbody>' +
+      groups.filter(function (g) { return g !== '기타' || total(amt[g]); }).map(function (g) {
+        return '<tr class="' + (sel === g ? 'sel' : '') + '"><th scope="row">' + esc(g) + '</th>' + amt[g].map(cell).join('') +
+          '<td class="num sum">' + (total(amt[g]) ? won(total(amt[g])) : '—') + '</td></tr>';
+      }).join('') +
+      '<tr class="tot"><th scope="row">합계</th>' + tot.map(cell).join('') + '<td class="num sum">' + (total(tot) ? won(total(tot)) : '—') + '</td></tr>' +
+      '</tbody></table></div></section>';
+    return h;
   }
 
   function kpi(label, value, unit, cls, hint) {
@@ -804,7 +832,6 @@
 
   var SHEET_HELP = {
     sales: '월별 판매 실적입니다. 대시보드의 안전재고(최근 판매 평균 ÷ 30 × LT) 계산에 쓰입니다.',
-    transit: '가져오는 곳: ERP › 구매/자재관리 › 발주관리 › 발주마감처리에서 마감구분 <b>진행</b>으로 조회한 목록. 복사해 ‘붙여넣기로 갱신’에 붙이거나, 내려받은 파일을 ‘엑셀에서 불러오기’로 올리세요.',
     raw: 'WMS에서 내려받은 재고현황 파일을 그대로 올리세요. 창고·소비기한별로 나뉜 행이 ERP코드별로 합산되어 ‘재고 현황’ 탭의 가용재고에 반영됩니다.'
   };
 

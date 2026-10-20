@@ -149,6 +149,8 @@
         self.o.onDelete(ri);
         return;
       }
+      // 드롭다운 안을 누른 것은 셀을 다시 그리지 않음 (다시 그리면 목록이 닫힘)
+      if (e.target.closest('select')) return;
       var td = e.target.closest('td[data-c]');
       if (td && !td.classList.contains('ro') && td !== self.editing) self.startEdit(td);
     });
@@ -204,13 +206,21 @@
     td.textContent = '';
     td.appendChild(s);
     s.focus();
+    // 한 번 누르면 바로 목록이 열리도록 (지원하지 않는 브라우저는 한 번 더 누르면 열림)
+    try { if (s.showPicker) s.showPicker(); } catch (err) { /* 무시 */ }
+    var finished = false;
     var done = function () {
+      if (finished) return;
+      finished = true;
       setv(row, col, ci, s.value);
       self.o.onChange(ri);
       self.refreshRow(ri);
     };
     s.addEventListener('change', done);
-    s.addEventListener('blur', function () { if (s.isConnected) self.refreshRow(ri); });
+    s.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { finished = true; self.refreshRow(ri); }
+    });
+    s.addEventListener('blur', function () { if (!finished && s.isConnected) { finished = true; self.refreshRow(ri); } });
   };
 
   SOPGrid.prototype.commit = function () {
