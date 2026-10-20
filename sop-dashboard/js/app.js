@@ -139,6 +139,8 @@
   function updateHeader() {
     var months = E.windowMonths(state.settings);
     var sub = document.getElementById('headerSub');
+    var tab = TABS.filter(function (t) { return t.key === prefs.tab; })[0];
+    document.getElementById('pageTitle').textContent = tab ? (tab.key === 'dashboard' ? 'S&OP 대시보드' : tab.label) : 'S&OP 대시보드';
     if (!hasData()) { sub.textContent = '엑셀 파일을 불러오면 대시보드가 생성됩니다'; return; }
     sub.textContent = '기준일 ' + todayStr() + ' · 검토 기간 ' + state.settings.year + '년 ' +
       months[0] + '~' + months[months.length - 1] + '월 · 품목 ' +
